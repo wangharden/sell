@@ -1,0 +1,31 @@
+{
+    "configurations": [
+        {
+            "name": "Win32",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "${workspaceFolder}/include",
+                "${workspaceFolder}/src/core",
+                "${workspaceFolder}/src/adapters",
+                "${workspaceFolder}/src/strategies",
+                "D:/work/sell/sample/HTS-csecitpdk5.2.52.0/csecitpdk5.2.52.0/sdk/win64/include",
+                "D:/work/sell/sample/HTS-csecitpdk5.2.52.0/csecitpdk5.2.52.0/sdk/win64/include/**",
+                "D:/work/sell/sample/TDFAPI 接口程序和接口文档汇总-20220831/API/tdfapi_windows/c/include"
+            ],
+            "defines": [
+                "_DEBUG",
+                "UNICODE",
+                "_UNICODE",
+                "_WIN32",
+                "_WIN64",
+                "HEADER_VER=5252"
+            ],
+            "windowsSdkVersion": "10.0.22621.0",
+            "compilerPath": "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.38.33130/bin/Hostx64/x64/cl.exe",
+            "cStandard": "c17",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "windows-msvc-x64"
+        }
+    ],
+    "version": 4
+}

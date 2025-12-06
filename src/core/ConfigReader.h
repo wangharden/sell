@@ -1,0 +1,247 @@
+#pragma once
+#include <string>
+#include <fstream>
+#include <sstream>
+#include <iostream>
+
+/// @brief 简易 JSON 配置读取器（不依赖第三方库）
+class ConfigReader {
+private:
+    std::string content_;
+    
+    /// @brief 从 JSON 字符串中提取字段值
+    std::string extract_value(const std::string& key) const {
+        size_t pos = content_.find("\"" + key + "\"");
+        if (pos == std::string::npos) return "";
+        
+        pos = content_.find(":", pos);
+        if (pos == std::string::npos) return "";
+        
+        pos = content_.find("\"", pos);
+        if (pos == std::string::npos) return "";
+        
+        size_t end = content_.find("\"", pos + 1);
+        if (end == std::string::npos) return "";
+        
+        return content_.substr(pos + 1, end - pos - 1);
+    }
+    
+    int extract_int(const std::string& key) const {
+        size_t pos = content_.find("\"" + key + "\"");
+        if (pos == std::string::npos) return 0;
+        
+        pos = content_.find(":", pos);
+        if (pos == std::string::npos) return 0;
+        
+        // 跳过空格和逗号
+        while (pos < content_.length() && 
+               (content_[pos] == ':' || content_[pos] == ' ' || 
+                content_[pos] == '\t' || content_[pos] == '\n')) {
+            pos++;
+        }
+        
+        size_t end = pos;
+        while (end < content_.length() && 
+               (content_[end] >= '0' && content_[end] <= '9')) {
+            end++;
+        }
+        
+        if (end > pos) {
+            return std::stoi(content_.substr(pos, end - pos));
+        }
+        return 0;
+    }
+
+public:
+    /// @brief 从文件加载配置
+    bool load(const std::string& file_path) {
+        std::ifstream file(file_path);
+        if (!file.is_open()) {
+            std::cerr << "[Config] 无法打开配置文件: " << file_path << std::endl;
+            return false;
+        }
+        
+        std::stringstream buffer;
+        buffer << file.rdbuf();
+        content_ = buffer.str();
+        
+        std::cout << "[Config] 配置文件加载成功: " << file_path << std::endl;
+        return true;
+    }
+    
+    /// @brief 获取交易服务器地址
+    std::string get_trading_host() const { return extract_value("host"); }
+    
+    /// @brief 获取交易端口
+    int get_trading_port() const { 
+        // 先找到 "trading" 块
+        size_t trading_pos = content_.find("\"trading\"");
+        if (trading_pos == std::string::npos) return 0;
+        
+        // 在 trading 块中查找 port
+        size_t port_pos = content_.find("\"port\"", trading_pos);
+        size_t next_section = content_.find("\"market\"", trading_pos);
+        
+        if (port_pos != std::string::npos && 
+            (next_section == std::string::npos || port_pos < next_section)) {
+            return extract_int("port");
+        }
+        return 0;
+    }
+    
+    /// @brief 获取交易账号
+    std::string get_trading_account() const { 
+        size_t trading_pos = content_.find("\"trading\"");
+        if (trading_pos == std::string::npos) return "";
+        
+        size_t account_pos = content_.find("\"account\"", trading_pos);
+        size_t next_section = content_.find("\"market\"", trading_pos);
+        
+        if (account_pos != std::string::npos && 
+            (next_section == std::string::npos || account_pos < next_section)) {
+            return extract_value("account");
+        }
+        return "";
+    }
+    
+    /// @brief 获取交易密码
+    std::string get_trading_password() const { 
+        size_t trading_pos = content_.find("\"trading\"");
+        if (trading_pos == std::string::npos) return "";
+        
+        size_t pwd_pos = content_.find("\"password\"", trading_pos);
+        size_t next_section = content_.find("\"market\"", trading_pos);
+        
+        if (pwd_pos != std::string::npos && 
+            (next_section == std::string::npos || pwd_pos < next_section)) {
+            return extract_value("password");
+        }
+        return "";
+    }
+    
+    /// @brief 获取配置段名称
+    std::string get_config_section() const { return extract_value("config_section"); }
+    
+    /// @brief 获取行情服务器地址
+    std::string get_market_host() const {
+        size_t market_pos = content_.find("\"market\"");
+        if (market_pos == std::string::npos) return "";
+        
+        size_t host_pos = content_.find("\"host\"", market_pos);
+        size_t next_section = content_.find("\"strategy\"", market_pos);
+        
+        if (host_pos != std::string::npos && 
+            (next_section == std::string::npos || host_pos < next_section)) {
+            // 手动提取（避免和 trading.host 冲突）
+            size_t start = content_.find("\"", host_pos + 6);
+            if (start == std::string::npos) return "";
+            size_t end = content_.find("\"", start + 1);
+            if (end == std::string::npos) return "";
+            return content_.substr(start + 1, end - start - 1);
+        }
+        return "";
+    }
+    
+    /// @brief 获取行情端口
+    int get_market_port() const {
+        size_t market_pos = content_.find("\"market\"");
+        if (market_pos == std::string::npos) return 0;
+        
+        size_t port_pos = content_.find("\"port\"", market_pos);
+        size_t next_section = content_.find("\"strategy\"", market_pos);
+        
+        if (port_pos != std::string::npos && 
+            (next_section == std::string::npos || port_pos < next_section)) {
+            // 手动解析数字
+            size_t colon = content_.find(":", port_pos);
+            if (colon == std::string::npos) return 0;
+            
+            size_t num_start = colon + 1;
+            while (num_start < content_.length() && 
+                   (content_[num_start] == ' ' || content_[num_start] == '\t')) {
+                num_start++;
+            }
+            
+            size_t num_end = num_start;
+            while (num_end < content_.length() && 
+                   content_[num_end] >= '0' && content_[num_end] <= '9') {
+                num_end++;
+            }
+            
+            if (num_end > num_start) {
+                return std::stoi(content_.substr(num_start, num_end - num_start));
+            }
+        }
+        return 0;
+    }
+    
+    /// @brief 获取行情用户名
+    std::string get_market_user() const {
+        size_t market_pos = content_.find("\"market\"");
+        if (market_pos == std::string::npos) return "";
+        
+        size_t user_pos = content_.find("\"user\"", market_pos);
+        size_t next_section = content_.find("\"strategy\"", market_pos);
+        
+        if (user_pos != std::string::npos && 
+            (next_section == std::string::npos || user_pos < next_section)) {
+            size_t start = content_.find("\"", user_pos + 6);
+            if (start == std::string::npos) return "";
+            size_t end = content_.find("\"", start + 1);
+            if (end == std::string::npos) return "";
+            return content_.substr(start + 1, end - start - 1);
+        }
+        return "";
+    }
+    
+    /// @brief 获取行情密码
+    std::string get_market_password() const {
+        size_t market_pos = content_.find("\"market\"");
+        if (market_pos == std::string::npos) return "";
+        
+        size_t pwd_pos = content_.find("\"password\"", market_pos);
+        size_t next_section = content_.find("\"strategy\"", market_pos);
+        
+        if (pwd_pos != std::string::npos && 
+            (next_section == std::string::npos || pwd_pos < next_section)) {
+            size_t start = content_.find("\"", pwd_pos + 10);
+            if (start == std::string::npos) return "";
+            size_t end = content_.find("\"", start + 1);
+            if (end == std::string::npos) return "";
+            return content_.substr(start + 1, end - start - 1);
+        }
+        return "";
+    }
+    
+    /// @brief 获取 CSV 路径
+    std::string get_csv_path() const { 
+        size_t strategy_pos = content_.find("\"strategy\"");
+        if (strategy_pos == std::string::npos) return "";
+        
+        size_t csv_pos = content_.find("\"csv_path\"", strategy_pos);
+        if (csv_pos != std::string::npos) {
+            size_t start = content_.find("\"", csv_pos + 10);
+            if (start == std::string::npos) return "";
+            size_t end = content_.find("\"", start + 1);
+            if (end == std::string::npos) return "";
+            return content_.substr(start + 1, end - start - 1);
+        }
+        return "";
+    }
+    
+    /// @brief 获取策略账号ID
+    std::string get_account_id() const { 
+        size_t strategy_pos = content_.find("\"strategy\"");
+        if (strategy_pos == std::string::npos) return "";
+        
+        size_t id_pos = content_.find("\"account_id\"", strategy_pos);
+        if (id_pos != std::string::npos) {
+            size_t start = content_.find("\"", id_pos + 12);
+            if (start == std::string::npos) return "";
+            size_t end = content_.find("\"", start + 1);
+            if (end == std::string::npos) return "";
+            return content_.substr(start + 1, end - start - 1);
+        }
+        return "";
+    }
+};

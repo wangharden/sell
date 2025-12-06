@@ -1,0 +1,19 @@
+{
+    "trading": {
+        "host": "172.18.69.23",          
+        "port": 28006,                     
+        "account": "010000227342",         
+        "password": "123123",              
+        "config_section": "A5_RS"          
+    },
+    "market": {
+        "host": "58.210.86.54",          
+        "port": 10001,                     
+        "user": "test",
+        "password": "test"
+    },
+    "strategy": {
+        "csv_path": "2025-09-10_yx1h.csv",
+        "account_id": "010000227342"     
+    }
+}
