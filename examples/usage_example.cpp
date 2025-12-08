@@ -25,11 +25,77 @@
 
 #ifdef _WIN32
 #include <direct.h>  // Windows: _mkdir
+#include <windows.h>  // Windows: FindFirstFile, FindNextFile
 #define MKDIR(dir) _mkdir(dir)
 #else
 #include <sys/stat.h>  // Linux: mkdir
+#include <dirent.h>   // Linux: opendir, readdir
 #define MKDIR(dir) mkdir(dir, 0755)
 #endif
+
+// 辅助函数：查找目录中最新的CSV文件
+std::string find_latest_csv(const std::string& directory = ".") {
+    std::string latest_csv;
+    
+#ifdef _WIN32
+    // Windows 实现
+    WIN32_FIND_DATAA find_data;
+    std::string search_path = directory + "\\*.csv";
+    HANDLE hFind = FindFirstFileA(search_path.c_str(), &find_data);
+    
+    if (hFind == INVALID_HANDLE_VALUE) {
+        std::cerr << "[CSV查找] 未找到CSV文件: " << directory << std::endl;
+        return "";
+    }
+    
+    FILETIME latest_time = {0, 0};
+    do {
+        if (!(find_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+            // 比较文件修改时间
+            if (CompareFileTime(&find_data.ftLastWriteTime, &latest_time) > 0) {
+                latest_time = find_data.ftLastWriteTime;
+                latest_csv = find_data.cFileName;
+            }
+        }
+    } while (FindNextFileA(hFind, &find_data) != 0);
+    
+    FindClose(hFind);
+#else
+    // Linux 实现
+    DIR* dir = opendir(directory.c_str());
+    if (!dir) {
+        std::cerr << "[CSV查找] 无法打开目录: " << directory << std::endl;
+        return "";
+    }
+    
+    struct dirent* entry;
+    time_t latest_time = 0;
+    
+    while ((entry = readdir(dir)) != nullptr) {
+        std::string filename = entry->d_name;
+        if (filename.length() > 4 && filename.substr(filename.length() - 4) == ".csv") {
+            std::string full_path = directory + "/" + filename;
+            struct stat file_stat;
+            if (stat(full_path.c_str(), &file_stat) == 0) {
+                if (file_stat.st_mtime > latest_time) {
+                    latest_time = file_stat.st_mtime;
+                    latest_csv = filename;
+                }
+            }
+        }
+    }
+    
+    closedir(dir);
+#endif
+    
+    if (!latest_csv.empty()) {
+        std::cout << "[CSV查找] 找到最新CSV文件: " << latest_csv << std::endl;
+        return latest_csv;
+    } else {
+        std::cerr << "[CSV查找] 目录中没有CSV文件: " << directory << std::endl;
+        return "";
+    }
+}
 
 // 辅助函数：从CSV文件读取所有股票代码
 std::vector<std::string> load_symbols_from_csv(const std::string& csv_path) {
@@ -224,7 +290,7 @@ std::string resolve_config_path() {
     return "";
 }
 
-void example_basic_usage(const ConfigReader& config) {
+void example_basic_usage(const ConfigReader& config, const std::string& csv_path) {
     g_logger->set_context("example_basic_usage");  // 设置上下文
     g_logger->info("=== 基础使用示例 ===");
     
@@ -234,7 +300,7 @@ void example_basic_usage(const ConfigReader& config) {
     
     // 2. 创建行情API实例
     auto market_api = std::make_shared<TdfMarketDataApi>();
-    market_api->set_csv_path(config.get_csv_path());  // 从配置读取CSV路径
+    market_api->set_csv_path(csv_path);  // 使用实际的CSV路径
     g_logger->info("创建 TdfMarketDataApi 实例");
     
     // 3. 创建组合API
@@ -324,14 +390,14 @@ void example_basic_usage(const ConfigReader& config) {
     g_logger->clear_context();
 }
 
-void example_separate_connections(const ConfigReader& config) {
+void example_separate_connections(const ConfigReader& config, const std::string& csv_path) {
     g_logger->set_context("example_separate_connections");
     g_logger->info("=== 独立连接示例 ===");
     
     // 分别管理交易和行情连接
     auto trading_api = std::make_shared<SecTradingApi>();
     auto market_api = std::make_shared<TdfMarketDataApi>();
-    market_api->set_csv_path(config.get_csv_path());  // 从配置读取CSV路径
+    market_api->set_csv_path(csv_path);  // 使用实际的CSV路径
     
     // 交易账号 - 使用配置
     g_logger->info("连接交易服务: " + config.get_trading_host());
@@ -390,13 +456,13 @@ void example_separate_connections(const ConfigReader& config) {
     g_logger->clear_context();
 }
 
-void example_market_data_only(const ConfigReader& config) {
+void example_market_data_only(const ConfigReader& config, const std::string& csv_path) {
     g_logger->set_context("example_market_data_only");
     g_logger->info("=== 纯行情使用示例 ===");
     
     // 只使用行情API，不需要交易功能
     auto market_api = std::make_shared<TdfMarketDataApi>();
-    market_api->set_csv_path(config.get_csv_path());  // 从配置读取CSV路径
+    market_api->set_csv_path(csv_path);  // 使用实际的CSV路径
     
     // 连接行情服务 -  使用配置
     g_logger->info("连接TDF行情服务: " + config.get_market_host() + ":" + std::to_string(config.get_market_port()));
@@ -408,7 +474,6 @@ void example_market_data_only(const ConfigReader& config) {
     g_logger->info("行情连接成功");
     
     // 从CSV文件加载所有股票代码
-    std::string csv_path = config.get_csv_path();
     std::vector<std::string> symbols = load_symbols_from_csv(csv_path);
     
     if (symbols.empty()) {
@@ -463,7 +528,7 @@ void example_market_data_only(const ConfigReader& config) {
     g_logger->clear_context();
 }
 
-void example_with_strategy(const ConfigReader& config) {
+void example_with_strategy(const ConfigReader& config, const std::string& csv_path) {
     g_logger->set_context("example_with_strategy");
     g_logger->info("=== 策略集成示例（竞价+盘中+收盘）===");
     if (!g_running.load()) {
@@ -475,7 +540,7 @@ void example_with_strategy(const ConfigReader& config) {
     // 1. 创建API实例
     auto trading_api = std::make_shared<SecTradingApi>();
     auto market_api = std::make_shared<TdfMarketDataApi>();
-    market_api->set_csv_path(config.get_csv_path());  // 从配置读取CSV路径
+    market_api->set_csv_path(csv_path);  // 使用实际的CSV路径
     auto combined_api = std::make_shared<TradingMarketApi>(trading_api, market_api);
     
     g_logger->info("创建API实例完成");
@@ -510,7 +575,6 @@ void example_with_strategy(const ConfigReader& config) {
     
     // 4. 创建策略实例 - 使用配置
     g_logger->info("--- 创建竞价/盘中/收盘策略 ---");
-    std::string csv_path = config.get_csv_path();
     std::string account_id = config.get_account_id();
     
     IntradaySellStrategy intraday_strategy(combined_api.get(), csv_path, account_id);
@@ -615,6 +679,34 @@ int main() {
         g_logger->warn("交易配置未填写，将只运行行情测试");
     }
     
+    // 检查并自动查找最新CSV文件
+    std::string csv_path = config.get_csv_path();
+    bool csv_valid = false;
+    
+    // 检查配置中的CSV文件是否存在
+    if (!csv_path.empty()) {
+        std::ifstream csv_test(csv_path);
+        csv_valid = csv_test.good();
+        csv_test.close();
+    }
+    
+    // 如果配置的CSV不存在或为空，自动查找最新的CSV
+    if (!csv_valid) {
+        g_logger->warn("配置的CSV文件不存在或未配置: " + csv_path);
+        g_logger->info("正在自动查找result目录下最新的CSV文件...");
+        
+        std::string latest_csv = find_latest_csv(".");
+        if (!latest_csv.empty()) {
+            csv_path = latest_csv;  // 使用找到的最新CSV文件
+            g_logger->info("✓ 已自动选择最新CSV: " + csv_path);
+        } else {
+            g_logger->error("未找到任何CSV文件，程序无法继续");
+            return 1;
+        }
+    } else {
+        g_logger->info("使用配置文件中指定的CSV: " + csv_path);
+    }
+    
     g_logger->info(" 配置加载成功:");
     if (has_trading_config) {
         g_logger->info("  交易服务器: " + trading_host + ":" + std::to_string(config.get_trading_port()));
@@ -622,7 +714,7 @@ int main() {
         g_logger->info("  交易服务器: <未配置>");
     }
     g_logger->info("  行情服务器: " + config.get_market_host() + ":" + std::to_string(config.get_market_port()));
-    g_logger->info("  策略CSV: " + config.get_csv_path());
+    g_logger->info("  策略CSV: " + csv_path);
     g_logger->info("");
     
     try {
@@ -635,7 +727,7 @@ int main() {
             g_logger->info("========================================");
             g_logger->info("模式1: 纯行情数据测试（无需交易配置）");
             g_logger->info("========================================");
-            example_market_data_only(config);
+            example_market_data_only(config, csv_path);
             g_logger->info("");
             
         } else {
@@ -663,7 +755,7 @@ int main() {
                 // 创建API实例
                 auto trading_api = std::make_shared<SecTradingApi>();
                 auto market_api = std::make_shared<TdfMarketDataApi>();
-                market_api->set_csv_path(config.get_csv_path());  // 从配置读取CSV路径
+                market_api->set_csv_path(csv_path);  // 使用实际的CSV路径
                 auto combined_api = std::make_shared<TradingMarketApi>(trading_api, market_api);
                 
                 // 启用 DRY-RUN 模式
@@ -700,7 +792,7 @@ int main() {
                 // 创建策略并运行（DRY-RUN模式）
                 g_logger->info("创建盘中卖出策略（DRY-RUN模式）...");
                 IntradaySellStrategy strategy(combined_api.get(), 
-                                              config.get_csv_path(), 
+                                              csv_path, 
                                               config.get_account_id());
                 if (!strategy.init()) {
                     g_logger->error("策略初始化失败！");
@@ -730,7 +822,7 @@ int main() {
                 g_logger->warn("========================================");
                 g_logger->warn("策略将执行真实交易！");
                 g_logger->warn("请确认以下配置正确:");
-                g_logger->warn("  - CSV文件: " + config.get_csv_path());
+                g_logger->warn("  - CSV文件: " + csv_path);
                 g_logger->warn("  - 交易账号: " + config.get_trading_account());
                 g_logger->warn("  - 交易服务器: " + config.get_trading_host());
                 g_logger->warn("如需取消，请在5秒内按Ctrl+C终止程序");
@@ -743,7 +835,7 @@ int main() {
                 }
                 
                 g_logger->info("开始执行真实交易策略...");
-                example_with_strategy(config);
+                example_with_strategy(config, csv_path);
                 if (!g_running.load()) {
                     g_logger->warn("检测到终止信号，程序已按请求停止");
                     return 0;

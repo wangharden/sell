@@ -29,7 +29,7 @@ private:
     int port_;
     std::string user_;
     std::string password_;
-    std::string subscription_list_;  // 🔧 保存订阅列表，避免c_str()指针失效
+    std::string subscription_list_;  //  保存订阅列表，避免c_str()指针失效
     std::string csv_path_;           // CSV 配置文件路径
     
     // 缓存
