@@ -302,7 +302,11 @@ int AuctionSellStrategy::get_current_time() const {
     auto now = std::chrono::system_clock::now();
     auto now_time_t = std::chrono::system_clock::to_time_t(now);
     std::tm now_tm;
+#ifdef _WIN32
     localtime_s(&now_tm, &now_time_t);
+#else
+    localtime_r(&now_time_t, &now_tm);
+#endif
     
     return now_tm.tm_hour * 10000 + now_tm.tm_min * 100 + now_tm.tm_sec;
 }
@@ -311,7 +315,11 @@ int AuctionSellStrategy::get_current_date() const {
     auto now = std::chrono::system_clock::now();
     auto now_time_t = std::chrono::system_clock::to_time_t(now);
     std::tm now_tm;
+#ifdef _WIN32
     localtime_s(&now_tm, &now_time_t);
+#else
+    localtime_r(&now_time_t, &now_tm);
+#endif
     
     return (now_tm.tm_year + 1900) * 10000 + (now_tm.tm_mon + 1) * 100 + now_tm.tm_mday;
 }

@@ -323,63 +323,84 @@ std::vector<Position> SecTradingApi::query_positions() {
     
     std::cout << "[SEC] Querying positions..." << std::endl;
     
-    std::vector<ITPDK_ZQGL> positions;
-    
-    // 查询持仓
-    int64_t nRet = SECITPDK_QueryPositions(  // 使用 int64_t 而非 long
-        account_id_.c_str(),  // 客户号
-        0,                    // 排序类型
-        0,                    // 请求行数（0表示全部）
-        0,                    // 定位串
-        "",                   // 股东号（空表示全部）
-        "",                   // 交易所（空表示全部）
-        "",                   // 证券代码（空表示全部）
-        1,                    // 执行标志
-        positions             // 返回结果
-    );
-    
-    if (nRet < 0) {
-        char error_msg[256] = {0};
-        SECITPDK_GetLastError(error_msg);
-        std::string error(error_msg);
-        std::cerr << "[SEC] Query positions failed: " << error << std::endl;
-        return {};
-    }
-    
-    std::cout << "[SEC] Found " << nRet << " positions" << std::endl;
-    
-    // 转换为通用格式
+    // 分页查询持仓：设置单页条数，使用 BrowIndex 继续翻页
     std::vector<Position> result;
-    
-    for (const auto& pos : positions) {
-        // 缓存股东号
-        std::string market(pos.Market);        // 交易所 - 修正字段名
-        std::string account(pos.SecuAccount);  // 股东号 - 修正字段名
-        
-        if (market == "SH" && sh_account_.empty()) {
-            sh_account_ = account;
-            std::cout << "[SEC] Cached SH account: " << sh_account_ << std::endl;
-        } else if (market == "SZ" && sz_account_.empty()) {
-            sz_account_ = account;
-            std::cout << "[SEC] Cached SZ account: " << sz_account_ << std::endl;
+    std::vector<ITPDK_ZQGL> page;
+    const int rowcount = 500;       // 单页条数（根据柜台上限可调整）
+    int64_t brow_index = 0;         // 0 表示从第一页开始
+    int page_no = 1;
+
+    while (true) {
+        page.clear();
+
+        int64_t nRet = SECITPDK_QueryPositions(
+            account_id_.c_str(),  // 客户号
+            0,                    // 排序类型
+            rowcount,             // 请求行数
+            brow_index,           // 定位串（上一页最后一条的 BrowIndex）
+            "",                   // 股东号（空表示全部）
+            "",                   // 交易所（空表示全部）
+            "",                   // 证券代码（空表示全部）
+            1,                    // 执行标志
+            page                  // 返回结果
+        );
+
+        if (nRet < 0) {
+            char error_msg[256] = {0};
+            SECITPDK_GetLastError(error_msg);
+            std::string error(error_msg);
+            std::cerr << "[SEC] Query positions failed on page " << page_no
+                      << ": " << error << std::endl;
+            return {};
         }
-        
-        // 构造完整股票代码
-        std::string symbol = std::string(pos.StockCode) + "." + market;  // 证券代码 - 修正字段名
-        
-        Position p;
-        p.symbol = symbol;
-        p.total = static_cast<int64_t>(pos.CurrentQty);    // 当前持仓 - 修正字段名
-        p.available = static_cast<int64_t>(pos.QtyAvl);    // 可用数量 - 修正字段名
-        p.frozen = static_cast<int64_t>(pos.FrozenQty);    // 冻结数量 - 修正字段名
-        
-        result.push_back(p);
-        
-        std::cout << "  " << p.symbol << ": total=" << p.total 
-                  << ", available=" << p.available 
-                  << ", frozen=" << p.frozen << std::endl;
+
+        if (nRet == 0) {
+            break; // 没有更多数据
+        }
+
+        std::cout << "[SEC] Page " << page_no << " returned " << nRet << " records" << std::endl;
+
+        for (const auto& pos : page) {
+            // 缓存股东号
+            std::string market(pos.Market);        // 交易所 - 修正字段名
+            std::string account(pos.SecuAccount);  // 股东号 - 修正字段名
+            
+            if (market == "SH" && sh_account_.empty()) {
+                sh_account_ = account;
+                std::cout << "[SEC] Cached SH account: " << sh_account_ << std::endl;
+            } else if (market == "SZ" && sz_account_.empty()) {
+                sz_account_ = account;
+                std::cout << "[SEC] Cached SZ account: " << sz_account_ << std::endl;
+            }
+            
+            // 构造完整股票代码
+            std::string symbol = std::string(pos.StockCode) + "." + market;  // 证券代码 - 修正字段名
+            
+            Position p;
+            p.symbol = symbol;
+            p.total = static_cast<int64_t>(pos.CurrentQty);    // 当前持仓 - 修正字段名
+            p.available = static_cast<int64_t>(pos.QtyAvl);    // 可用数量 - 修正字段名
+            p.frozen = static_cast<int64_t>(pos.FrozenQty);    // 冻结数量 - 修正字段名
+            
+            result.push_back(p);
+            
+            std::cout << "  " << p.symbol << ": total=" << p.total 
+                      << ", available=" << p.available 
+                      << ", frozen=" << p.frozen << std::endl;
+        }
+
+        // 若返回条数小于请求条数，说明已到末页
+        if (page.size() < static_cast<size_t>(rowcount)) {
+            break;
+        }
+
+        // 继续翻页：使用当前页最后一条的 BrowIndex 作为下一页定位串
+        brow_index = page.back().BrowIndex;
+        ++page_no;
     }
-    
+
+    std::cout << "[SEC] Total positions aggregated: " << result.size() << std::endl;
+
     // 缓存持仓
     {
         std::lock_guard<std::mutex> lock(positions_mutex_);
