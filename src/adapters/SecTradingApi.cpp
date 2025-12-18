@@ -326,7 +326,7 @@ std::vector<Position> SecTradingApi::query_positions() {
     // 分页查询持仓：设置单页条数，使用 BrowIndex 继续翻页
     std::vector<Position> result;
     std::vector<ITPDK_ZQGL> page;
-    const int rowcount = 500;       // 单页条数（根据柜台上限可调整）
+    const int rowcount = 200;       // 单页条数（根据柜台上限可调整）
     int64_t brow_index = 0;         // 0 表示从第一页开始
     int page_no = 1;
 
@@ -452,7 +452,8 @@ std::vector<OrderResult> SecTradingApi::query_orders() {
     for (const auto& api_order : api_orders) {
         OrderResult order_result;
         order_result.success = true;
-        order_result.order_id = std::to_string(api_order.OrderId);
+        std::string sys_id_str = std::to_string(api_order.OrderId);
+        order_result.order_id = sys_id_str;
         order_result.symbol = std::string(api_order.StockCode) + "." + api_order.Market;
         order_result.volume = api_order.OrderQty;
         order_result.filled_volume = api_order.MatchQty;
@@ -476,10 +477,21 @@ std::vector<OrderResult> SecTradingApi::query_orders() {
             order_result.status = OrderResult::Status::UNKNOWN;
         }
         
-        // 备注信息（如果API支持）
-        // 注意：ITPDK_DRWT 结构中可能没有 remark 字段，这里留空
-        // 如果需要，可以通过其他方式关联
-        order_result.remark = "";
+        // 备注信息：用本地订单缓存关联（API结构里通常没有remark）
+        {
+            std::lock_guard<std::mutex> lock(orders_mutex_);
+            auto local_it = sysid_to_local_.find(api_order.OrderId);
+            if (local_it != sysid_to_local_.end()) {
+                const std::string& local_id = local_it->second;
+                order_result.order_id = local_id;  // 用本地ID，便于撤单
+                auto ord_it = orders_.find(local_id);
+                if (ord_it != orders_.end()) {
+                    order_result.remark = ord_it->second.remark;
+                }
+            } else {
+                order_result.remark = "";
+            }
+        }
         
         result.push_back(order_result);
         

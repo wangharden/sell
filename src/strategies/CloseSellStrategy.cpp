@@ -4,6 +4,7 @@
 #include <chrono>
 #include <ctime>
 #include <cmath>
+#include <algorithm>
 
 CloseSellStrategy::CloseSellStrategy(
     TradingMarketApi* api,
@@ -103,7 +104,12 @@ void CloseSellStrategy::phase1_random_sell() {
             continue;
         }
         
-        int64_t vol = available_vol - hold_vol_;
+        int64_t remaining = std::min(available_vol, holding_vol) - hold_vol_ - sold_volumes_[symbol];
+        if (remaining <= 0) {
+            continue;
+        }
+        
+        int64_t vol = std::min<int64_t>(available_vol - hold_vol_, remaining);
         
         // 获取行情 - txt line 68-84
         MarketSnapshot snap = api_->get_snapshot(symbol);
@@ -166,6 +172,10 @@ void CloseSellStrategy::phase1_random_sell() {
         if (!order_id.empty()) {
             sold_volumes_[symbol] += vol;
             remarks_[symbol] = req.remark;
+            auto& ids = order_ids_[symbol];
+            if (std::find(ids.begin(), ids.end(), order_id) == ids.end()) {
+                ids.push_back(order_id);
+            }
             std::cout << "    Order placed: " << order_id << std::endl;
         }
     }
@@ -190,21 +200,60 @@ void CloseSellStrategy::phase2_cancel_orders() {
     
     // 查询订单列表
     auto orders = api_->query_orders();
+    std::map<std::string, OrderResult::Status> status_by_id;
+    for (const auto& order : orders) {
+        status_by_id[order.order_id] = order.status;
+    }
+    
+    std::cout << "[Phase2] orders_from_api=" << orders.size()
+              << ", tracked_symbols=" << order_ids_.size() << std::endl;
     
     // 遍历所有记录的股票
     for (auto& pair : remarks_) {
         const std::string& symbol = pair.first;
         const std::string& remark = pair.second;
         
-        // 遍历订单，精确匹配remark
-        for (const auto& order : orders) {
-            if (order.remark == remark) {
-                // 状态不是已成交(FILLED=3)则撤单
-                if (order.status != OrderResult::Status::FILLED) {
-                    if (api_->cancel_order(order.order_id)) {
-                        cancel_count++;
-                        std::cout << "  Cancelled: " << symbol 
-                                  << ", order_id=" << order.order_id << std::endl;
+        int cancel_try = 0;
+        
+        // 优先按本地记录的 order_id 撤单
+        auto ids_it = order_ids_.find(symbol);
+        if (ids_it != order_ids_.end()) {
+            for (const auto& order_id : ids_it->second) {
+                auto st_it = status_by_id.find(order_id);
+                if (st_it == status_by_id.end()) {
+                    std::cout << "  [Phase2] order_id not found: " << symbol 
+                              << " " << order_id << std::endl;
+                    continue;
+                }
+                
+                auto status = st_it->second;
+                if (status == OrderResult::Status::FILLED ||
+                    status == OrderResult::Status::CANCELLED ||
+                    status == OrderResult::Status::REJECTED) {
+                    continue;
+                }
+                
+                cancel_try++;
+                if (api_->cancel_order(order_id)) {
+                    cancel_count++;
+                    std::cout << "  Cancelled: " << symbol 
+                              << ", order_id=" << order_id << std::endl;
+                }
+            }
+        }
+        
+        // 兜底：按 remark 匹配
+        if (cancel_try == 0) {
+            for (const auto& order : orders) {
+                if (order.remark == remark) {
+                    if (order.status != OrderResult::Status::FILLED &&
+                        order.status != OrderResult::Status::CANCELLED &&
+                        order.status != OrderResult::Status::REJECTED) {
+                        if (api_->cancel_order(order.order_id)) {
+                            cancel_count++;
+                            std::cout << "  Cancelled: " << symbol 
+                                      << ", order_id=" << order.order_id << std::endl;
+                        }
                     }
                 }
             }
@@ -248,6 +297,11 @@ void CloseSellStrategy::phase3_test_sell() {
         }
         
         // 固定卖出100股
+        int64_t remaining = std::min(available_vol, holding_vol) - hold_vol_ - sold_volumes_[symbol];
+        if (remaining < 100) {
+            continue;
+        }
+        
         int64_t vol = 100;
         
         // 获取行情 - txt line 172-183
@@ -294,6 +348,11 @@ void CloseSellStrategy::phase3_test_sell() {
         std::string order_id = api_->place_order(req);
         
         if (!order_id.empty()) {
+            sold_volumes_[symbol] += vol;
+            auto& ids = order_ids_[symbol];
+            if (std::find(ids.begin(), ids.end(), order_id) == ids.end()) {
+                ids.push_back(order_id);
+            }
             std::cout << "    Order placed: " << order_id << std::endl;
         }
     }
@@ -325,6 +384,11 @@ void CloseSellStrategy::phase4_bulk_sell() {
             continue;
         }
         
+        int64_t remaining = std::min(available_vol, holding_vol) - hold_vol_ - sold_volumes_[symbol];
+        if (remaining <= 0) {
+            continue;
+        }
+        
         // txt line 204-210: 计算卖出数量
         // 总仓位 - 底仓
         holding_vol = holding_vol - hold_vol_;
@@ -335,6 +399,8 @@ void CloseSellStrategy::phase4_bulk_sell() {
         } else {
             vol = holding_vol - 100;
         }
+        
+        vol = std::min(vol, remaining);
         
         if (vol <= 0) {
             continue;
@@ -384,6 +450,11 @@ void CloseSellStrategy::phase4_bulk_sell() {
         std::string order_id = api_->place_order(req);
         
         if (!order_id.empty()) {
+            sold_volumes_[symbol] += vol;
+            auto& ids = order_ids_[symbol];
+            if (std::find(ids.begin(), ids.end(), order_id) == ids.end()) {
+                ids.push_back(order_id);
+            }
             std::cout << "    Order placed: " << order_id << std::endl;
         }
     }

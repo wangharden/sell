@@ -8,6 +8,7 @@
 #include "../src/strategies/AuctionSellStrategy.h"
 #include "../src/strategies/CloseSellStrategy.h"
 #include "../src/core/ConfigReader.h"  // 配置文件读取器
+#include "TeeStream.h"
 
 #include <iostream>
 #include <fstream>
@@ -22,6 +23,7 @@
 #include <mutex>  // 添加mutex头文件
 #include <atomic>
 #include <csignal>
+#include <fstream>
 
 #ifdef _WIN32
 #include <direct.h>  // Windows: _mkdir
@@ -196,7 +198,7 @@ private:
     }
 
 public:
-    Logger(const std::string& log_name = "trading_test") {
+    Logger(const std::string& log_name = "trading_test_data") {
         // 使用相对路径，程序会在当前工作目录下创建log文件夹
         std::string log_dir = "./log";
         std::cerr << "[Logger] 日志目录: " << log_dir << std::endl;
@@ -267,6 +269,27 @@ public:
 // 全局日志实例
 static std::unique_ptr<Logger> g_logger;
 static std::atomic<bool> g_running{true};
+static std::unique_ptr<TeeStream> g_tee_cout;
+static std::unique_ptr<TeeStream> g_tee_cerr;
+static std::ofstream g_all_log;
+
+static std::string get_date_yyyymmdd() {
+    auto now = std::chrono::system_clock::now();
+    auto time_t = std::chrono::system_clock::to_time_t(now);
+    std::tm tm_buf;
+#ifdef _WIN32
+    localtime_s(&tm_buf, &time_t);
+#else
+    localtime_r(&time_t, &tm_buf);
+#endif
+    char date_str[16];
+    strftime(date_str, sizeof(date_str), "%Y%m%d", &tm_buf);
+    return std::string(date_str);
+}
+
+static void ensure_log_dir(const std::string& dir) {
+    MKDIR(dir.c_str());
+}
 
 void handle_termination_signal(int /*signal*/) {
     g_running.store(false);
@@ -636,9 +659,19 @@ void example_with_strategy(const ConfigReader& config, const std::string& csv_pa
 }
 
 int main() {
+    // 统一输出到文件 + 控制台
+    const std::string log_dir = "./log";
+    ensure_log_dir(log_dir);
+    const std::string all_log_path = log_dir + "/trading_test_data_" + get_date_yyyymmdd() + ".log";
+    g_all_log.open(all_log_path.c_str(), std::ios::app);
+    if (g_all_log.is_open()) {
+        g_tee_cout.reset(new TeeStream(std::cout, g_all_log.rdbuf()));
+        g_tee_cerr.reset(new TeeStream(std::cerr, g_all_log.rdbuf()));
+    }
+
     // 初始化日志（文件名会自动包含日期）
     std::cerr << "[main] Logger初始化..." << std::endl;
-    g_logger.reset(new Logger("trading_test"));
+    g_logger.reset(new Logger("trading_test_data"));
     std::cerr << "[main] Logger初始化完成" << std::endl;
 
     std::signal(SIGINT, handle_termination_signal);

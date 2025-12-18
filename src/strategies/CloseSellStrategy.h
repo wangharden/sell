@@ -55,6 +55,9 @@ private:
     
     // 运行时数据: symbol -> remark
     std::map<std::string, std::string> remarks_;
+
+    // 运行时数据: symbol -> order_id list
+    std::map<std::string, std::vector<std::string>> order_ids_;
     
     // 运行时数据: symbol -> callback flag
     std::map<std::string, int> callbacks_;
