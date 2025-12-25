@@ -4,7 +4,8 @@
         "port": 28006,                     
         "account": "010000227342",         
         "password": "123123",              
-        "config_section": "A5_RS"          
+        "config_section": "A5_RS",  
+        "snode" :"127.0.0.1"
     },
     "market": {
         "host": "58.210.86.54",          

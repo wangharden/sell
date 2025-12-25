@@ -72,6 +72,15 @@ void CloseSellStrategy::phase1_random_sell() {
     // 每3秒触发，15%概率卖出，中间价
     
     auto positions = api_->query_positions();
+    // 用当前持仓校正实际已卖数量，避免累计委托量虚高
+    for (const auto& pos : positions) {
+        auto it = total_volumes_.find(pos.symbol);
+        if (it != total_volumes_.end()) {
+            int64_t init_total = it->second;
+            int64_t actual_sold = std::max<int64_t>(0, init_total - pos.total);
+            sold_volumes_[pos.symbol] = actual_sold;
+        }
+    }
     
     for (const auto& pos : positions) {
         const std::string& symbol = pos.symbol;
@@ -170,7 +179,6 @@ void CloseSellStrategy::phase1_random_sell() {
         std::string order_id = api_->place_order(req);
         
         if (!order_id.empty()) {
-            sold_volumes_[symbol] += vol;
             remarks_[symbol] = req.remark;
             auto& ids = order_ids_[symbol];
             if (std::find(ids.begin(), ids.end(), order_id) == ids.end()) {
@@ -271,6 +279,15 @@ void CloseSellStrategy::phase3_test_sell() {
     std::cout << "=== Phase 3: Test sell (100 shares each) ===" << std::endl;
     
     auto positions = api_->query_positions();
+    // 校正已卖数量
+    for (const auto& pos : positions) {
+        auto it = total_volumes_.find(pos.symbol);
+        if (it != total_volumes_.end()) {
+            int64_t init_total = it->second;
+            int64_t actual_sold = std::max<int64_t>(0, init_total - pos.total);
+            sold_volumes_[pos.symbol] = actual_sold;
+        }
+    }
     
     for (const auto& pos : positions) {
         const std::string& symbol = pos.symbol;
@@ -348,7 +365,6 @@ void CloseSellStrategy::phase3_test_sell() {
         std::string order_id = api_->place_order(req);
         
         if (!order_id.empty()) {
-            sold_volumes_[symbol] += vol;
             auto& ids = order_ids_[symbol];
             if (std::find(ids.begin(), ids.end(), order_id) == ids.end()) {
                 ids.push_back(order_id);
@@ -363,6 +379,15 @@ void CloseSellStrategy::phase4_bulk_sell() {
     std::cout << "=== Phase 4: Bulk sell (remaining positions) ===" << std::endl;
     
     auto positions = api_->query_positions();
+    // 校正已卖数量
+    for (const auto& pos : positions) {
+        auto it = total_volumes_.find(pos.symbol);
+        if (it != total_volumes_.end()) {
+            int64_t init_total = it->second;
+            int64_t actual_sold = std::max<int64_t>(0, init_total - pos.total);
+            sold_volumes_[pos.symbol] = actual_sold;
+        }
+    }
     
     for (const auto& pos : positions) {
         const std::string& symbol = pos.symbol;
@@ -384,23 +409,14 @@ void CloseSellStrategy::phase4_bulk_sell() {
             continue;
         }
         
-        int64_t remaining = std::min(available_vol, holding_vol) - hold_vol_ - sold_volumes_[symbol];
-        if (remaining <= 0) {
+        // 可卖数量基于当前持仓/可用计算，避免“已卖量”重复扣减
+        int64_t sellable = std::max<int64_t>(0, std::min(available_vol, holding_vol) - hold_vol_);
+        if (sellable <= 0) {
             continue;
         }
         
         // txt line 204-210: 计算卖出数量
-        // 总仓位 - 底仓
-        holding_vol = holding_vol - hold_vol_;
-        
-        int64_t vol;
-        if (available_vol < holding_vol) {
-            vol = available_vol - 100;
-        } else {
-            vol = holding_vol - 100;
-        }
-        
-        vol = std::min(vol, remaining);
+        int64_t vol = sellable;
         
         if (vol <= 0) {
             continue;
@@ -450,7 +466,6 @@ void CloseSellStrategy::phase4_bulk_sell() {
         std::string order_id = api_->place_order(req);
         
         if (!order_id.empty()) {
-            sold_volumes_[symbol] += vol;
             auto& ids = order_ids_[symbol];
             if (std::find(ids.begin(), ids.end(), order_id) == ids.end()) {
                 ids.push_back(order_id);

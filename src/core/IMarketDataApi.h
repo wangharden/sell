@@ -38,7 +38,7 @@ public:
     /// @brief 获取集合竞价数据
     /// @param symbol 股票代码
     /// @param date 日期 YYYYMMDD格式
-    /// @param end_time 截止时间 "HHMMSS" 格式，如 "092700"
+    /// @param end_time 截止时间 "HHMMSS" 或 "HHMMSSmmm" 格式，如 "092700" 或 "092700000"
     /// @return 开盘价、集合竞价成交金额
     virtual std::pair<double, double> get_auction_data(
         const std::string& symbol,

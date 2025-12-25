@@ -98,7 +98,7 @@ void IntradaySellStrategy::collect_auction_data() {
         if (!stock) continue;
         
         // 通过API获取09:15-09:27的集合竞价数据
-        auto auction_data = api_->get_auction_data(symbol, date_str, "092700");
+        auto auction_data = api_->get_auction_data(symbol, date_str, "092700000");
         stock->open_price = auction_data.first;   // 开盘价
         stock->jjamt = auction_data.second;       // 集合竞价成交金额
         
@@ -157,6 +157,7 @@ void IntradaySellStrategy::execute_sell() {
         auto windows = sell_strategy_.get_windows(condition, jjamt, open_ratio);
         
         // 检查当前时间是否在卖出窗口内
+        bool placed = false;
         for (const auto& window : windows) {
             if (now >= window.start_time && now < window.end_time) {
                 // 50%概率随机跳过（txt line 165）
@@ -172,8 +173,17 @@ void IntradaySellStrategy::execute_sell() {
                           << ", keep=" << window.keep_position << std::endl;
                 
                 sell_order(symbol, window.keep_position, now);
+                placed = true;
                 break;
             }
+        }
+        if (!placed) {
+            std::cout << "  " << symbol << ": not in window at " << now 
+                      << ", windows=";
+            for (const auto& w : windows) {
+                std::cout << "[" << w.start_time << "-" << w.end_time << "]";
+            }
+            std::cout << std::endl;
         }
     }
 }
@@ -192,6 +202,8 @@ void IntradaySellStrategy::sell_order(
     int64_t vol = std::min(available_vol, holding_vol);
     
     if (vol == 0) {
+        std::cout << "    " << symbol << ": vol=0 (avail=" << stock->avail_vol
+                  << ", total=" << stock->total_vol << ")" << std::endl;
         stock->sell_flag = 1;
         return;
     }

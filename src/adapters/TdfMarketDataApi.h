@@ -15,9 +15,9 @@ struct TDF_TRANSACTION;
 
 // Tick 数据结构（用于集合竞价）
 struct TickData {
-    int timestamp;     // 时间 HHMMSSmmm (从 PDF nTime)
-    double open;       // 开盘价 (nOpen / 10000.0)
-    long long amount;  // 成交金额 (iTurnover)
+    int timestamp;     // 时间 HHMMSSmmm (nTime)
+    double open;       // 逐笔成交价 (nPrice / 10000.0)
+    long long amount;  // 单笔成交金额 (nTurnover)
 };
 
 /// @brief TDF行情API适配器
@@ -35,6 +35,7 @@ private:
     // 缓存
     std::map<std::string, MarketSnapshot> snapshot_cache_;
     std::map<std::string, std::vector<TickData>> tick_cache_;
+    bool auction_tick_logged_ = false;
     mutable std::mutex cache_mutex_;
     
     // 回调（静态）

@@ -529,7 +529,7 @@ void AuctionSellStrategy::collect_auction_data() {
         if (!stock) continue;
         
         // 通过API获取09:15-09:27的集合竞价数据
-        auto auction_data = api_->get_auction_data(symbol, date_str, "092700");
+        auto auction_data = api_->get_auction_data(symbol, date_str, "092700000");
         stock->open_price = auction_data.first;   // 开盘价
         stock->jjamt = auction_data.second;       // 集合竞价成交金额
         

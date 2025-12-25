@@ -3,6 +3,7 @@
 #include <sstream>
 #include <iostream>
 #include <algorithm>
+#include <map>
 
 bool CsvConfig::load_from_file(const std::string& csv_path) {
     std::ifstream file(csv_path);
@@ -15,6 +16,8 @@ bool CsvConfig::load_from_file(const std::string& csv_path) {
     
     std::string line;
     bool is_header = true;
+    std::map<std::string, size_t> header_index;
+    bool warned_unknown = false;
     
     while (std::getline(file, line)) {
         // 跳过空行
@@ -22,36 +25,50 @@ bool CsvConfig::load_from_file(const std::string& csv_path) {
             continue;
         }
         
-        // 跳过表头
+        // 处理表头：按列名解析，大小写不敏感
         if (is_header) {
+            auto header_fields = parse_line(line);
+            for (size_t i = 0; i < header_fields.size(); ++i) {
+                std::string key = header_fields[i];
+                std::transform(key.begin(), key.end(), key.begin(), ::tolower);
+                header_index[key] = i;
+            }
+            // 必需列校验
+            const char* required[] = {"shortname", "symbol", "tradingdate", "avail_vol", "total_vol", "close", "fb_flag", "zb_flag", "second_flag"};
+            for (auto* req : required) {
+                if (header_index.find(req) == header_index.end()) {
+                    std::cerr << "Missing required column: " << req << " in CSV " << csv_path << std::endl;
+                    return false;
+                }
+            }
             is_header = false;
             continue;
         }
         
         auto fields = parse_line(line);
-        if (fields.size() < 13) {
-            std::cerr << "Invalid CSV line (expected >= 13 fields): " << line << std::endl;
-            continue;
-        }
         
         StockParams params;
         
-        // 解析字段（索引从0开始，跳过第一列序号）
-        // 格式：0序号,1SHORTNAME,2SYMBOL,3TRADINGDATE,4avail_vol,5total_vol,
-        //       6limit_time,7lock_time,8break_time,9high,10close,11FB_FLAG,12ZB_FLAG,13SECOND_FLAG
-        
         try {
-            params.shortname = fields[1];
-            params.symbol = normalize_symbol(fields[2]);
-            params.trading_date = fields[3];
-            params.avail_vol = std::stoll(fields[4]);
-            params.total_vol = std::stoll(fields[5]);
-            // fields[6-9] 是limit_time, lock_time, break_time, high (暂不使用)
-            // field[10] 是close，即昨收价
-            params.pre_close = (fields.size() > 10) ? std::stod(fields[10]) : 0.0;
-            params.fb_flag = (fields.size() > 11) ? std::stoi(fields[11]) : 0;
-            params.zb_flag = (fields.size() > 12) ? std::stoi(fields[12]) : 0;
-            params.second_flag = (fields.size() > 13) ? std::stoi(fields[13]) : 0;
+            auto get_field = [&](const std::string& name) -> std::string {
+                std::string key = name;
+                std::transform(key.begin(), key.end(), key.begin(), ::tolower);
+                auto it = header_index.find(key);
+                if (it == header_index.end() || it->second >= fields.size()) {
+                    return "";
+                }
+                return fields[it->second];
+            };
+            
+            params.shortname = get_field("shortname");
+            params.symbol = normalize_symbol(get_field("symbol"));
+            params.trading_date = get_field("tradingdate");
+            params.avail_vol = std::stoll(get_field("avail_vol"));
+            params.total_vol = std::stoll(get_field("total_vol"));
+            params.pre_close = get_field("close").empty() ? 0.0 : std::stod(get_field("close"));
+            params.fb_flag = get_field("fb_flag").empty() ? 0 : std::stoi(get_field("fb_flag"));
+            params.zb_flag = get_field("zb_flag").empty() ? 0 : std::stoi(get_field("zb_flag"));
+            params.second_flag = get_field("second_flag").empty() ? 0 : std::stoi(get_field("second_flag"));
             
             // 初始化运行时状态
             params.sell_flag = 0;
@@ -61,6 +78,12 @@ bool CsvConfig::load_from_file(const std::string& csv_path) {
             params.call_back = 0;
             
             stocks_[params.symbol] = params;
+            
+            // 记录未知列（只警告一次）
+            if (!warned_unknown && header_index.size() > 0 && fields.size() > header_index.size()) {
+                std::cerr << "Warning: extra columns detected, they will be ignored." << std::endl;
+                warned_unknown = true;
+            }
             
         } catch (const std::exception& e) {
             std::cerr << "Error parsing CSV line: " << line << ", error: " << e.what() << std::endl;

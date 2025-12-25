@@ -7,12 +7,108 @@
 #include <thread>
 #include <cstring>
 #include <vector>
+#include <fstream>
+#include <algorithm>
+#include <sstream>
 
 // SEC ITPDK 头文件（C++ API）
 #include "secitpdk/secitpdk.h"
 #include "secitpdk/secitpdk_struct.h"
 
 using std::vector;
+
+// 简单的 ini 读取（按 section/key 查找）
+static std::string trim_copy(const std::string& s) {
+    auto start = s.find_first_not_of(" \t\r\n");
+    if (start == std::string::npos) return "";
+    auto end = s.find_last_not_of(" \t\r\n");
+    return s.substr(start, end - start + 1);
+}
+
+static std::string read_ini_value(const std::string& path,
+                                  const std::string& section,
+                                  const std::string& key) {
+    std::ifstream in(path.c_str());
+    if (!in.is_open()) return "";
+    std::string line;
+    bool in_section = false;
+    std::string target_section = section;
+    // section 名大小写不敏感
+    std::transform(target_section.begin(), target_section.end(), target_section.begin(), ::tolower);
+    std::string target_key = key;
+    std::transform(target_key.begin(), target_key.end(), target_key.begin(), ::tolower);
+
+    while (std::getline(in, line)) {
+        std::string raw = trim_copy(line);
+        if (raw.empty() || raw[0] == ';' || raw[0] == '#') continue;
+        if (raw.front() == '[' && raw.back() == ']') {
+            std::string sec = raw.substr(1, raw.size() - 2);
+            std::transform(sec.begin(), sec.end(), sec.begin(), ::tolower);
+            in_section = (sec == target_section);
+            continue;
+        }
+        if (!in_section) continue;
+        auto pos = raw.find('=');
+        if (pos == std::string::npos) continue;
+        std::string k = raw.substr(0, pos);
+        std::string v = raw.substr(pos + 1);
+        k = trim_copy(k);
+        v = trim_copy(v);
+        std::transform(k.begin(), k.end(), k.begin(), ::tolower);
+        if (k == target_key) {
+            return v;
+        }
+    }
+    return "";
+}
+
+// 从 config.json 读取 trading.snode
+static std::string read_config_snode(const std::string& path,
+                                     const std::string& section = "trading",
+                                     const std::string& key = "snode") {
+    std::ifstream in(path.c_str());
+    if (!in.is_open()) return "";
+    std::stringstream buffer;
+    buffer << in.rdbuf();
+    std::string content = buffer.str();
+
+    auto lower = [](std::string s) {
+        std::transform(s.begin(), s.end(), s.begin(), ::tolower);
+        return s;
+    };
+
+    std::string target_section = "\"" + lower(section) + "\"";
+    std::string target_key = "\"" + lower(key) + "\"";
+    std::string lower_content = content;
+    std::transform(lower_content.begin(), lower_content.end(), lower_content.begin(), ::tolower);
+
+    size_t sec_pos = lower_content.find(target_section);
+    if (sec_pos == std::string::npos) return "";
+
+    // 限定在 section 范围内查找 key（到下一个大括号或下一个 section）
+    size_t search_start = sec_pos;
+    size_t search_end = lower_content.find("\"market\"", sec_pos);
+    size_t next_strategy = lower_content.find("\"strategy\"", sec_pos);
+    if (next_strategy != std::string::npos) {
+        if (search_end == std::string::npos || next_strategy < search_end) {
+            search_end = next_strategy;
+        }
+    }
+    if (search_end == std::string::npos) search_end = lower_content.size();
+
+    size_t key_pos = lower_content.find(target_key, search_start);
+    if (key_pos == std::string::npos || key_pos > search_end) return "";
+
+    size_t colon = lower_content.find(':', key_pos);
+    if (colon == std::string::npos || colon > search_end) return "";
+
+    size_t quote1 = content.find('"', colon + 1);
+    if (quote1 == std::string::npos || quote1 > search_end) return "";
+    size_t quote2 = content.find('"', quote1 + 1);
+    if (quote2 == std::string::npos || quote2 > search_end) return "";
+
+    return content.substr(quote1 + 1, quote2 - quote1 - 1);
+}
 
 // 静态成员初始化
 std::map<std::string, SecTradingApi*> SecTradingApi::instances_;
@@ -53,6 +149,20 @@ bool SecTradingApi::connect(const std::string& host, int port,
     std::cout << "[SEC] Setting paths before init..." << std::endl;
     SECITPDK_SetLogPath("./log");      // 日志目录
     SECITPDK_SetProfilePath("./");     // 配置文件目录（itpdk.ini 所在位置）
+    // 优先从 config.json 读取 trading.snode；若未配置再尝试 ini
+    std::string node;
+    node = read_config_snode("./config.json");
+    if (node.empty()) {
+        std::string ini_path = "./itpdk.ini";
+        node = read_ini_value(ini_path, config_section_, "Node");
+    }
+    if (!node.empty()) {
+        SECITPDK_SetNode(node.c_str());
+        std::cout << "[SEC] Set node: " << node << std::endl;
+    } else {
+        std::cout << "[SEC] Node not configured in config.json or itpdk.ini"
+                  << " (section [" << config_section_ << "])" << std::endl;
+    }
     
     // ==================== 2. 初始化 SECITPDK ====================
     std::cout << "[SEC] Initializing SECITPDK..." << std::endl;
@@ -477,7 +587,7 @@ std::vector<OrderResult> SecTradingApi::query_orders() {
             order_result.status = OrderResult::Status::UNKNOWN;
         }
         
-        // 备注信息：用本地订单缓存关联（API结构里通常没有remark）
+        // 关联本地id
         {
             std::lock_guard<std::mutex> lock(orders_mutex_);
             auto local_it = sysid_to_local_.find(api_order.OrderId);

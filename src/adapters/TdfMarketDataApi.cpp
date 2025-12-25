@@ -38,6 +38,46 @@ static std::string TimeToString(int nTime) {
     return std::string(buf);
 }
 
+static int NormalizeToHhmmss(int tdf_time) {
+    if (tdf_time <= 0) {
+        return 0;
+    }
+    if (tdf_time > 235959) {
+        return tdf_time / 1000;
+    }
+    return tdf_time;
+}
+
+static bool TryParseHhmmss(const std::string& time_str, int& out_hhmmss) {
+    std::string digits;
+    digits.reserve(time_str.size());
+    for (char ch : time_str) {
+        if (std::isdigit(static_cast<unsigned char>(ch))) {
+            digits.push_back(ch);
+        }
+    }
+    if (digits.empty()) {
+        return false;
+    }
+
+    long long raw_value = 0;
+    try {
+        raw_value = std::stoll(digits);
+    } catch (const std::exception&) {
+        return false;
+    }
+
+    if (digits.size() > 6) {
+        raw_value /= 1000;  // HHMMSSmmm -> HHMMSS
+    }
+    if (raw_value <= 0 || raw_value > 235959) {
+        return false;
+    }
+
+    out_hhmmss = static_cast<int>(raw_value);
+    return true;
+}
+
 static double RoundToPrice(double value) {
     if (!std::isfinite(value)) {
         return 0.0;
@@ -219,20 +259,33 @@ std::pair<double, double> TdfMarketDataApi::get_limits(const std::string& symbol
 
 std::pair<double, double> TdfMarketDataApi::get_auction_data(
     const std::string& symbol, const std::string& date, const std::string& end_time) {
+    (void)date;
+
+    int end_hhmmss = 0;
+    if (!TryParseHhmmss(end_time, end_hhmmss)) {
+        return {0.0, 0.0};
+    }
+
     std::lock_guard<std::mutex> lock(cache_mutex_);
-    auto it = tick_cache_.find(symbol);
-    if (it == tick_cache_.end()) return {0.0, 0.0};
-    
-    const auto& vec = it->second;
-    int end_ts = std::stoi(end_time);  // 如 92700
-    
-    // 从后找 <= end_ts 的最后一条（假设 vec 已按时间升序）
-    for (auto rit = vec.rbegin(); rit != vec.rend(); ++rit) {
-        if (rit->timestamp <= end_ts) {
-            return {rit->open, static_cast<double>(rit->amount) / 10000.0};  // 金额转万元？
+
+    double open_price = 0.0;
+
+    // 优先使用快照：包含 nOpen 和累计成交额 iTurnover（集合竞价阶段策略需要的字段）
+    auto snap_it = snapshot_cache_.find(symbol);
+    if (snap_it != snapshot_cache_.end()) {
+        const MarketSnapshot& snap = snap_it->second;
+        if (snap.valid && snap.open > 0.0) {
+            open_price = snap.open;
+        }
+
+        // 仅当快照时间 <= end_time 时，快照的 turnover 才能代表 end_time 时刻的累计成交额
+        int snap_hhmmss = NormalizeToHhmmss(snap.timestamp);
+        if (snap.valid && snap_hhmmss > 0 && snap_hhmmss <= end_hhmmss) {
+            return {open_price, static_cast<double>(snap.turnover)};
         }
     }
-    return {0.0, 0.0};
+
+    return {open_price, 0.0};
 }
 
 bool TdfMarketDataApi::subscribe(const std::vector<std::string>& symbols) {
@@ -409,19 +462,40 @@ void TdfMarketDataApi::HandleTransactionData(TDF_MSG* pMsgHead) {
     TDF_TRANSACTION* pTrans = (TDF_TRANSACTION*)pMsgHead->pData;
     
     std::lock_guard<std::mutex> lock(cache_mutex_);
+    if (auction_tick_logged_) {
+        return;
+    }
     for (unsigned int i = 0; i < count; ++i) {
         std::string symbol = pTrans[i].szWindCode;
-        TickData tick;
-        tick.timestamp = pTrans[i].nTime;
-        // 逐笔成交只有单笔价格和数量，没有开盘价和累计成交金额
-        // 我们用成交价和成交金额来模拟
-        tick.open = pTrans[i].nPrice / 10000.0;  // 使用成交价
-        tick.amount = pTrans[i].nTurnover;       // 使用成交金额
-        tick_cache_[symbol].push_back(tick);
-        
-        // 保持时间升序排列
-        std::sort(tick_cache_[symbol].begin(), tick_cache_[symbol].end(),
-                  [](const TickData& a, const TickData& b) { return a.timestamp < b.timestamp; });
+
+        int tick_hhmmss = NormalizeToHhmmss(pTrans[i].nTime);
+        if (tick_hhmmss < 91500 || tick_hhmmss > 92700) {
+            continue;
+        }
+
+        if (symbol.length() >= 9) {
+            std::string code = symbol.substr(0, 6);
+            bool is_stock = false;
+            if ((code[0] == '6' && (code[1] == '0' || code[1] == '8')) ||
+                (code[0] == '0' && code[1] == '0') ||
+                (code[0] == '3' && code[1] == '0')) {
+                is_stock = true;
+            }
+            if (!is_stock) {
+                continue;
+            }
+        }
+
+        double price = pTrans[i].nPrice / 10000.0;
+        double amount_wan = static_cast<double>(pTrans[i].nTurnover) / 10000.0;
+        std::cout << "[TDF] auction tick " << symbol
+                  << " " << TimeToString(pTrans[i].nTime)
+                  << " price=" << price
+                  << " vol=" << pTrans[i].nVolume
+                  << " amt_wan=" << amount_wan
+                  << std::endl;
+        auction_tick_logged_ = true;
+        break;
     }
 }
 
