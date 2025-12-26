@@ -103,7 +103,19 @@ void AuctionSellStrategy::check_market_data() {
     std::cout << "=== Phase 0: Checking market data ===" << std::endl;
     
     for (const auto& symbol : csv_config_.get_all_symbols()) {
+        auto* stock = csv_config_.get_stock(symbol);
         MarketSnapshot snap = api_->get_snapshot(symbol);
+        if (stock && snap.valid && snap.pre_close > 0.0) {
+            stock->pre_close = snap.pre_close;
+        }
+        if (stock && snap.valid) {
+            if (snap.high_limit > 0.0) {
+                stock->zt_price = snap.high_limit;
+            }
+            if (snap.low_limit > 0.0) {
+                stock->dt_price = snap.low_limit;
+            }
+        }
         if (snap.valid) {
             std::cout << "  " << symbol << " market data OK" << std::endl;
         } else {
@@ -142,11 +154,17 @@ void AuctionSellStrategy::phase1_return1_sell() {
         // 获取行情
         MarketSnapshot snap = api_->get_snapshot(symbol);
         if (!snap.valid) continue;
+        if (snap.high_limit > 0.0) {
+            stock->zt_price = snap.high_limit;
+        }
+        if (snap.low_limit > 0.0) {
+            stock->dt_price = snap.low_limit;
+        }
         
         double buy_price1 = snap.bid_price1;
         double ask_vol2 = snap.ask_volume2;
         
-        // 涨停判断：买一价=涨停价 且 卖二有量（说明涨停但未封牢）
+        // 涨停判断：买一价=涨停价 且 卖二有量
         // 集合竞价期间，如果涨停但未封板：Ask2、Ask1、Bid1 都会在涨停价，且Ask2有量
         if (std::abs(buy_price1 - stock->zt_price) < 0.01 && ask_vol2 > 0) {
             continue;
@@ -155,6 +173,11 @@ void AuctionSellStrategy::phase1_return1_sell() {
         // 无条件卖出10%仓位，挂跌停价
         vol = (vol / 100 / 10) * 100;  // 10%向下取整到100股
         if (vol <= 0) continue;
+
+        if (stock->dt_price <= 0.0) {
+            std::cout << "  [Phase1] " << symbol << " skip: dt_price<=0" << std::endl;
+            continue;
+        }
         
         stock->return1_sell = 1;
         
@@ -212,6 +235,12 @@ void AuctionSellStrategy::phase2_conditional_sell() {
         // 获取行情
         MarketSnapshot snap = api_->get_snapshot(symbol);
         if (!snap.valid) continue;
+        if (snap.high_limit > 0.0) {
+            stock->zt_price = snap.high_limit;
+        }
+        if (snap.low_limit > 0.0) {
+            stock->dt_price = snap.low_limit;
+        }
         
         double buy_price1 = snap.bid_price1;
         double ask_vol1 = snap.ask_volume1;
@@ -374,6 +403,12 @@ void AuctionSellStrategy::phase3_final_sell() {
         // 获取行情
         MarketSnapshot snap = api_->get_snapshot(symbol);
         if (!snap.valid) continue;
+        if (snap.high_limit > 0.0) {
+            stock->zt_price = snap.high_limit;
+        }
+        if (snap.low_limit > 0.0) {
+            stock->dt_price = snap.low_limit;
+        }
         
         double buy_price1 = snap.bid_price1;
         double buy_vol2 = snap.bid_volume2;
@@ -381,8 +416,8 @@ void AuctionSellStrategy::phase3_final_sell() {
         double ask_vol2 = snap.ask_volume2;
         
         // Phase3 涨停未封板判断
-        // 原始逻辑：买1=涨停 且 买2==0 且 卖2>0（说明涨停但封板不牢固）
-        // 集合竞价涨停未封板特征：Ask2、Ask1、Bid1都在涨停价，Bid2为0或很小，Ask2有量
+        // 原始逻辑：买1=涨停 且 买2==0 且 卖2>0
+        // 集合竞价涨停未封板特征：Ask2、Ask1、Bid1都在涨停价，Ask2有量
         if (std::abs(buy_price1 - stock->zt_price) < 0.01 && 
             buy_vol2 == 0 && 
             ask_vol2 > 0 && 

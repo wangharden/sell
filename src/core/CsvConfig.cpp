@@ -65,7 +65,11 @@ bool CsvConfig::load_from_file(const std::string& csv_path) {
             params.trading_date = get_field("tradingdate");
             params.avail_vol = std::stoll(get_field("avail_vol"));
             params.total_vol = std::stoll(get_field("total_vol"));
-            params.pre_close = get_field("close").empty() ? 0.0 : std::stod(get_field("close"));
+            double pre_close = get_field("close").empty() ? 0.0 : std::stod(get_field("close"));
+            if (pre_close > 10000.0) {
+                pre_close /= 10000.0;
+            }
+            params.pre_close = pre_close;
             params.fb_flag = get_field("fb_flag").empty() ? 0 : std::stoi(get_field("fb_flag"));
             params.zb_flag = get_field("zb_flag").empty() ? 0 : std::stoi(get_field("zb_flag"));
             params.second_flag = get_field("second_flag").empty() ? 0 : std::stoi(get_field("second_flag"));

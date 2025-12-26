@@ -101,7 +101,12 @@ void IntradaySellStrategy::collect_auction_data() {
         auto auction_data = api_->get_auction_data(symbol, date_str, "092700000");
         stock->open_price = auction_data.first;   // 开盘价
         stock->jjamt = auction_data.second;       // 集合竞价成交金额
-        
+
+        MarketSnapshot snap = api_->get_snapshot(symbol);
+        if (snap.valid && snap.pre_close > 0.0) {
+            stock->pre_close = snap.pre_close;
+        }
+
         std::cout << "  " << symbol << ": jjamt=" << stock->jjamt 
                   << ", open=" << stock->open_price << std::endl;
     }

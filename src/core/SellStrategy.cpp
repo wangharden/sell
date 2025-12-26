@@ -7,7 +7,9 @@ void SellStrategy::init_default_strategy() {
     
     // fb: 封板未炸板
     strategy_["fb"][15e6][1.04] = {
-        parse_window("112800-130200-0"),
+        parse_window("112800-130200-0")
+    };
+    strategy_["fb"][15e6][0] = {
         parse_window("103800-104200-0")
     };
     strategy_["fb"][0][1.015] = {
@@ -21,7 +23,9 @@ void SellStrategy::init_default_strategy() {
     
     // hf: 回封 (封板后炸板又封回)
     strategy_["hf"][20e6][1.03] = {
-        parse_window("112800-130200-0"),
+        parse_window("112800-130200-0")
+    };
+    strategy_["hf"][20e6][0] = {
         parse_window("104800-105200-0")
     };
     strategy_["hf"][0][1.03] = {

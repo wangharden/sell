@@ -283,14 +283,13 @@ std::string SecTradingApi::place_order(const OrderRequest& req) {
     if (dry_run_mode_) {
         std::cout << "[SEC] *** DRY-RUN MODE *** 测试交易API连接" << std::endl;
         
-        // 注意：SecTradingApi 不负责行情，直接使用请求价格的90%作为跌停价
-        // 如需真实跌停价，请使用 TradingMarketApi 组合适配器
+        // SecTradingApi 不负责行情，直接使用请求价格的90%作为跌停价
         double down_limit = req.price * 0.9;
         
         std::cout << "[SEC] [DRY-RUN] 使用跌停价 " << down_limit 
                   << " 买入 100 股 " << stock_code << "（不会实际成交）" << std::endl;
         
-        // 用买入方向（跌停价不会成交）
+
         int64_t sys_id = SECITPDK_OrderEntrust(
             account_id_.c_str(),
             market.c_str(),
