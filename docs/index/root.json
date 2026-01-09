@@ -1,0 +1,27 @@
+{
+  "version": "2.0",
+  "project": "sell",
+  "root": "d:/work/sell",
+  "source_root": "d:/work/sell/result",
+  "feedback_root": "d:/work/sell/feedback/result",
+  "sync_script": "d:/work/sell/sync_feedback.ps1",
+  "indices": {
+    "code": "feedback/result/docs/index/code.json",
+    "docs": "feedback/result/docs/index/docs.json",
+    "logs": "feedback/result/docs/index/logs.json",
+    "pipelines": "feedback/result/docs/index/pipelines.json",
+    "fields": "feedback/result/docs/index/fields.json"
+  },
+  "modules": {
+    "auction": "feedback/result/docs/modules/auction.md",
+    "intraday": "feedback/result/docs/modules/intraday.md",
+    "close": "feedback/result/docs/modules/close.md"
+  },
+  "incidents": "feedback/result/docs/incidents",
+  "notes": [
+    "Code changes are made under d:/work/sell/result and synced to feedback.",
+    "Docs and debug records live under feedback/result/docs.",
+    "Module docs consolidate pipeline details; fields.json provides variable dictionary.",
+    "Incidents track bug reports and fixes."
+  ]
+}

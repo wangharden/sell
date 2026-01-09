@@ -22,7 +22,8 @@ public:
     AuctionSellStrategy(
         TradingMarketApi* api,
         const std::string& csv_path,
-        const std::string& account_id
+        const std::string& account_id,
+        double sell_to_mkt_ratio
     );
     
     ~AuctionSellStrategy() = default;
@@ -48,7 +49,7 @@ private:
     int64_t rand_amt1_ = 40000;        // 随机金额1
     int64_t rand_amt2_ = 5000;         // 随机金额2
     int64_t hold_vol_ = 300;           // 底仓数量
-    double sell_to_mkt_ratio_ = 0.0;   // 卖出量占市场ask1的比例限制（0表示不限制）
+    double sell_to_mkt_ratio_ = 0.1;   // 卖出量占市场ask1的比例限制（0表示不限制）
     
     // 状态变量
     int hangqin_check_ = 0;   // 行情检查标志

@@ -1,0 +1,13 @@
+{
+  "version": "1.0",
+  "root": "d:/work/sell",
+  "logs": [
+    "log/trading_test*.log"
+  ],
+  "artifacts": [
+    "feedback/result/config.json",
+    "feedback/result/*.csv",
+    "feedback/result/docs/worklog/*.md",
+    "feedback/result/docs/incidents/*.md"
+  ]
+}

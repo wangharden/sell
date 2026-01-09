@@ -5,6 +5,9 @@ project(SellStrategy CXX)
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Avoid VS/msbuild re-running CMake during build (helps offline tests and prevents stamp lock issues).
+set(CMAKE_SUPPRESS_REGENERATION ON CACHE BOOL "Disable ZERO_CHECK regeneration target" FORCE)
+
 # Windows MSVC UTF-8 support
 if(MSVC)
     add_compile_options(/utf-8)

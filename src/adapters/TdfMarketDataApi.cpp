@@ -462,40 +462,69 @@ void TdfMarketDataApi::HandleTransactionData(TDF_MSG* pMsgHead) {
     TDF_TRANSACTION* pTrans = (TDF_TRANSACTION*)pMsgHead->pData;
     
     std::lock_guard<std::mutex> lock(cache_mutex_);
-    if (auction_tick_logged_) {
-        return;
-    }
     for (unsigned int i = 0; i < count; ++i) {
         std::string symbol = pTrans[i].szWindCode;
-
         int tick_hhmmss = NormalizeToHhmmss(pTrans[i].nTime);
-        if (tick_hhmmss < 91500 || tick_hhmmss > 92700) {
+        if (tick_hhmmss <= 0) {
             continue;
         }
 
+        bool is_stock = true;
         if (symbol.length() >= 9) {
             std::string code = symbol.substr(0, 6);
-            bool is_stock = false;
+            is_stock = false;
             if ((code[0] == '6' && (code[1] == '0' || code[1] == '8')) ||
                 (code[0] == '0' && code[1] == '0') ||
                 (code[0] == '3' && code[1] == '0')) {
                 is_stock = true;
             }
-            if (!is_stock) {
-                continue;
-            }
+        }
+        if (!is_stock) {
+            continue;
         }
 
-        double price = pTrans[i].nPrice / 10000.0;
-        double amount_wan = static_cast<double>(pTrans[i].nTurnover) / 10000.0;
-        std::cout << "[TDF] auction tick " << symbol
-                  << " " << TimeToString(pTrans[i].nTime)
-                  << " price=" << price
-                  << " vol=" << pTrans[i].nVolume
-                  << " amt_wan=" << amount_wan
-                  << std::endl;
-        auction_tick_logged_ = true;
-        break;
+        // 如果设置了回调，调用回调函数
+        if (transaction_callback_) {
+            TransactionData td;
+            td.symbol = symbol;
+            td.timestamp = pTrans[i].nTime;
+            td.price = pTrans[i].nPrice / 10000.0;
+            td.volume = pTrans[i].nVolume;
+            td.turnover = static_cast<double>(pTrans[i].nTurnover);
+            td.bsf_flag = pTrans[i].nBSFlag;
+            td.function_code = pTrans[i].chFunctionCode;
+            transaction_callback_(td);
+        }
+
+        // 内置的调试日志（保留少量样本）
+        if (!auction_tick_logged_ && tick_hhmmss >= 91500 && tick_hhmmss <= 92700) {
+            double price = pTrans[i].nPrice / 10000.0;
+            double amount_wan = static_cast<double>(pTrans[i].nTurnover) / 10000.0;
+            std::cout << "[TDF] auction tick " << symbol
+                      << " " << TimeToString(pTrans[i].nTime)
+                      << " price=" << price
+                      << " vol=" << pTrans[i].nVolume
+                      << " amt_wan=" << amount_wan
+                      << std::endl;
+            auction_tick_logged_ = true;
+        }
+
+        if (tick_hhmmss >= 93000 && continuous_tick_logged_ < 10) {
+            double price = pTrans[i].nPrice / 10000.0;
+            double amount_wan = static_cast<double>(pTrans[i].nTurnover) / 10000.0;
+            std::cout << "[TDF] continuous tick " << symbol
+                      << " " << TimeToString(pTrans[i].nTime)
+                      << " price=" << price
+                      << " vol=" << pTrans[i].nVolume
+                      << " amt_wan=" << amount_wan
+                      << std::endl;
+            continuous_tick_logged_++;
+        }
+
+        // 不再提前退出，让回调能处理所有数据
+        // if (auction_tick_logged_ && continuous_tick_logged_ >= 10) {
+        //     break;
+        // }
     }
 }
 

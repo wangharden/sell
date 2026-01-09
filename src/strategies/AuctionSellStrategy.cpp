@@ -8,10 +8,12 @@
 AuctionSellStrategy::AuctionSellStrategy(
     TradingMarketApi* api,
     const std::string& csv_path,
-    const std::string& account_id
-) : api_(api), 
-    csv_path_(csv_path), 
+    const std::string& account_id,
+    double sell_to_mkt_ratio
+) : api_(api),
+    csv_path_(csv_path),
     account_id_(account_id),
+    sell_to_mkt_ratio_(sell_to_mkt_ratio),
     uniform_dist_(0.0, 1.0),
     normal_dist_(0.0, 1.0) {
     std::random_device rd;
@@ -164,9 +166,9 @@ void AuctionSellStrategy::phase1_return1_sell() {
         double buy_price1 = snap.bid_price1;
         double ask_vol2 = snap.ask_volume2;
         
-        // 涨停判断：买一价=涨停价 且 卖二有量
-        // 集合竞价期间，如果涨停但未封板：Ask2、Ask1、Bid1 都会在涨停价，且Ask2有量
-        if (std::abs(buy_price1 - stock->zt_price) < 0.01 && ask_vol2 > 0) {
+        // 涨停判断：买一价=涨停价 且 卖二无量（封死）→ 跳过
+        // 集合竞价期间，封死涨停时 Ask2 无量
+        if (std::abs(buy_price1 - stock->zt_price) < 0.01 && ask_vol2 <= 0) {
             continue;
         }
         
@@ -209,11 +211,22 @@ void AuctionSellStrategy::phase2_conditional_sell() {
             continue;
         }
         
+        // DEBUG: 打印 flag 状态
+        std::cout << "[Phase2 DEBUG] " << symbol 
+                  << " flags: second_flag=" << stock->second_flag
+                  << ", fb_flag=" << stock->fb_flag
+                  << ", zb_flag=" << stock->zb_flag
+                  << ", sell_flag=" << stock->sell_flag << std::endl;
+        
         // 12.5%概率触发 (txt line 142)
         double p = uniform_dist_(rng_);
+        std::cout << "[Phase2 DEBUG] " << symbol << " random p=" << p 
+                  << " (need <0.125 to trigger)" << std::endl;
         if (p >= 0.125) {
+            std::cout << "[Phase2 DEBUG] " << symbol << " SKIP: probability check failed" << std::endl;
             continue;
         }
+        std::cout << "[Phase2 DEBUG] " << symbol << " PASSED probability check" << std::endl;
         
         // 查找持仓
         int64_t avail_vol = 0;
@@ -247,24 +260,35 @@ void AuctionSellStrategy::phase2_conditional_sell() {
         double ask_vol2 = snap.ask_volume2;
         
         // 限制总卖出量不超过市场ask1的一定比例
-        if (sell_to_mkt_ratio_ > 0) {
-            if (stock->total_sell / 100.0 >= ask_vol1 * sell_to_mkt_ratio_) {
+        if (sell_to_mkt_ratio_ >= 0) {
+            if (stock->total_sell  >= ask_vol1 * sell_to_mkt_ratio_) {
                 std::cout << "  " << symbol << " skip: total_sell=" 
                           << stock->total_sell / 100.0 << ", ask1=" << ask_vol1 << std::endl;
                 continue;
             }
         }
         
-        // 涨停判断：买一价=涨停价 且 卖二有量（说明涨停但未封牢）
-        if (std::abs(buy_price1 - stock->zt_price) < 0.01 && ask_vol2 > 0) {
+        // 涨停判断：买一价=涨停价 且 卖二无量（封死）→ 跳过
+        if (std::abs(buy_price1 - stock->zt_price) < 0.01 && ask_vol2 <= 0) {
+            std::cout << "[Phase2 DEBUG] " << symbol << " SKIP: limit up locked (bid1=" 
+                      << buy_price1 << ", zt=" << stock->zt_price << ", ask_vol2=" << ask_vol2 << ")" << std::endl;
             continue;
         }
         
-        double pre_close = stock->pre_close;
-        if (pre_close <= 0) continue;
+        double pre_close = 0.0;
+        if (stock->zt_price > 0.0) {
+            pre_close = std::round((stock->zt_price / 1.1 - 1e-6) * 100.0) / 100.0;
+        }
+        std::cout << "[Phase2 DEBUG] " << symbol 
+                  << " zt_price=" << stock->zt_price 
+                  << ", calculated pre_close=" << pre_close << std::endl;
+        if (pre_close <= 0.0) {
+            std::cout << "[Phase2 DEBUG] " << symbol << " SKIP: pre_close<=0" << std::endl;
+            continue;
+        }
         
         // 随机数量计算
-        if (single_amt_ < buy_price1 * vol) {
+        if (single_amt_ < buy_price1 * vol)  {
             double U = uniform_dist_(rng_);
             double N = normal_dist_(rng_);
             double temp_amt = single_amt_ - rand_amt1_ / 2.0 
@@ -288,7 +312,7 @@ void AuctionSellStrategy::phase2_conditional_sell() {
                 condition = "连板";
             }
         } else if (stock->fb_flag == 1 && stock->zb_flag == 0 
-                   && buy_price1 * ask_vol1 * 100 < 15e6) {
+                   && buy_price1 * ask_vol1 < 15e6) {
             // 封死：ask1成交额<1500万，买1>=昨收*1.015
             double gaokai_price = ceil_round(pre_close * 1.015 + 1e-6, 2);
             if (buy_price1 >= gaokai_price) {
@@ -296,7 +320,7 @@ void AuctionSellStrategy::phase2_conditional_sell() {
                 condition = "封死";
             }
         } else if (stock->fb_flag == 0 && stock->zb_flag == 1 
-                   && buy_price1 * ask_vol1 * 100 < 3e6) {
+                   && buy_price1 * ask_vol1 < 3e6) {
             // 炸板：ask1成交额<300万，买1>=昨收*1.01
             double gaokai_price = ceil_round(pre_close * 1.01 + 1e-6, 2);
             if (buy_price1 >= gaokai_price) {
@@ -305,7 +329,18 @@ void AuctionSellStrategy::phase2_conditional_sell() {
             }
         }
         
-        if (sell_price <= 0) continue;  // 不满足条件
+        // DEBUG: 打印 sell_price 计算结果
+        std::cout << "[Phase2 DEBUG] " << symbol 
+                  << " buy_price1=" << buy_price1
+                  << ", ask_vol1=" << ask_vol1
+                  << ", ask_amt=" << (buy_price1 * ask_vol1)
+                  << ", sell_price=" << sell_price
+                  << ", condition=" << (condition.empty() ? "NONE" : condition) << std::endl;
+        
+        if (sell_price <= 0) {
+            std::cout << "[Phase2 DEBUG] " << symbol << " SKIP: sell_price<=0 (no condition matched)" << std::endl;
+            continue;  // 不满足条件
+        }
         
         OrderRequest req;
         req.account_id = account_id_;
@@ -329,28 +364,29 @@ void AuctionSellStrategy::phase2_conditional_sell() {
 
 int AuctionSellStrategy::get_current_time() const {
     auto now = std::chrono::system_clock::now();
-    auto now_time_t = std::chrono::system_clock::to_time_t(now);
-    std::tm now_tm;
+    std::time_t now_c = std::chrono::system_clock::to_time_t(now);
+    std::tm local_tm;
 #ifdef _WIN32
-    localtime_s(&now_tm, &now_time_t);
+    localtime_s(&local_tm, &now_c);
 #else
-    localtime_r(&now_time_t, &now_tm);
+    localtime_r(&now_c, &local_tm);
 #endif
-    
-    return now_tm.tm_hour * 10000 + now_tm.tm_min * 100 + now_tm.tm_sec;
+    return local_tm.tm_hour * 10000 + local_tm.tm_min * 100 + local_tm.tm_sec;
 }
 
 int AuctionSellStrategy::get_current_date() const {
     auto now = std::chrono::system_clock::now();
-    auto now_time_t = std::chrono::system_clock::to_time_t(now);
-    std::tm now_tm;
+    std::time_t now_c = std::chrono::system_clock::to_time_t(now);
+    std::tm local_tm;
 #ifdef _WIN32
-    localtime_s(&now_tm, &now_time_t);
+    localtime_s(&local_tm, &now_c);
 #else
-    localtime_r(&now_time_t, &now_tm);
+    localtime_r(&now_c, &local_tm);
 #endif
-    
-    return (now_tm.tm_year + 1900) * 10000 + (now_tm.tm_mon + 1) * 100 + now_tm.tm_mday;
+    int year = local_tm.tm_year + 1900;
+    int month = local_tm.tm_mon + 1;
+    int day = local_tm.tm_mday;
+    return year * 10000 + month * 100 + day;
 }
 
 void AuctionSellStrategy::print_status() const {
@@ -415,48 +451,65 @@ void AuctionSellStrategy::phase3_final_sell() {
         double ask_vol1 = snap.ask_volume1;
         double ask_vol2 = snap.ask_volume2;
         
-        // Phase3 涨停未封板判断
-        // 原始逻辑：买1=涨停 且 买2==0 且 卖2>0
-        // 集合竞价涨停未封板特征：Ask2、Ask1、Bid1都在涨停价，Ask2有量
-        if (std::abs(buy_price1 - stock->zt_price) < 0.01 && 
-            buy_vol2 == 0 && 
-            ask_vol2 > 0 && 
-            stock->limit_sell == 0) {
-            // 卖出一半仓位，价格为涨停价-0.01
+        // Phase3 涨停分支：弱封板/未封板（对应 qh2h竞价卖出new.txt）
+        // 弱封板：买1=涨停 且 买2量 < 2*卖1量 → 全仓卖出
+        // 未封板：买1=涨停 且 卖2有量 且 买2无量 → 全仓卖出
+        if (std::abs(buy_price1 - stock->zt_price) < 0.01 && stock->limit_sell == 0) {
             double gaokai_price = stock->zt_price - 0.01;
-            int64_t half_vol = (vol / 100 / 2) * 100;  // 一半向下取整
+            int64_t sell_vol = vol;
             
-            if (half_vol > 0) {
+            if (buy_vol2 < 2 * ask_vol1) {
                 OrderRequest req;
                 req.account_id = account_id_;
                 req.symbol = symbol;
                 req.price = gaokai_price;
-                req.volume = half_vol;
+                req.volume = sell_vol;
                 req.is_market = false;
                 req.remark = "盘前卖出" + symbol;
                 
                 std::string order_id = api_->place_order(req);
                 
                 if (!order_id.empty()) {
-                    stock->total_sell += half_vol;
+                    stock->total_sell += sell_vol;
                     stock->userOrderId = req.remark;
                     stock->limit_sell = 1;
-                    std::cout << "  [Phase3-LimitUp] " << symbol << " sell " << half_vol 
+                    std::cout << "  [Phase3-WeakSeal] " << symbol << " sell " << sell_vol 
                               << " @ " << gaokai_price << " (zt-0.01), order=" << order_id << std::endl;
                 }
+                continue;
             }
-            continue;  // 处理完涨停，跳过后续逻辑
+            
+            if (ask_vol2 > 0 && buy_vol2 <= 0) {
+                OrderRequest req;
+                req.account_id = account_id_;
+                req.symbol = symbol;
+                req.price = gaokai_price;
+                req.volume = sell_vol;
+                req.is_market = false;
+                req.remark = "盘前卖出" + symbol;
+                
+                std::string order_id = api_->place_order(req);
+                
+                if (!order_id.empty()) {
+                    stock->total_sell += sell_vol;
+                    stock->userOrderId = req.remark;
+                    stock->limit_sell = 1;
+                    std::cout << "  [Phase3-Unsealed] " << symbol << " sell " << sell_vol 
+                              << " @ " << gaokai_price << " (zt-0.01), order=" << order_id << std::endl;
+                }
+                continue;
+            }
         }
         
         // txt line 248-251: 仓位系数限流
-        if (sell_to_mkt_ratio_ > 0) {
-            if (stock->total_sell / 100.0 > ask_vol1 * sell_to_mkt_ratio_) {
+        if (sell_to_mkt_ratio_ >= 0) {
+            if (stock->total_sell  > ask_vol1 * sell_to_mkt_ratio_) {
                 std::cout << "  " << symbol << " skip (ratio): total_sell=" 
                           << stock->total_sell / 100.0 << ", ask1=" << ask_vol1 << std::endl;
                 continue;
             }
             // 按仓位系数限制vol
-            int64_t temp_vol = static_cast<int64_t>((ask_vol1 * sell_to_mkt_ratio_) - (stock->total_sell / 100.0)) * 100;
+            int64_t temp_vol = static_cast<int64_t>(((ask_vol1 * sell_to_mkt_ratio_) - stock->total_sell) / 100.0) * 100;
             vol = std::min(vol, temp_vol);
         }
         
@@ -468,8 +521,11 @@ void AuctionSellStrategy::phase3_final_sell() {
             continue;
         }
         
-        double pre_close = stock->pre_close;
-        if (pre_close <= 0 || vol <= 0) continue;
+        double pre_close = 0.0;
+        if (stock->zt_price > 0.0) {
+            pre_close = std::round((stock->zt_price / 1.1 - 1e-6) * 100.0) / 100.0;
+        }
+        if (pre_close <= 0.0 || vol <= 0) continue;
         
         // txt line 254-275: 重复连板/封死/炸板判断，时间窗内成交后置sell_flag
         double sell_price = 0;
@@ -482,14 +538,14 @@ void AuctionSellStrategy::phase3_final_sell() {
                 condition = "连板";
             }
         } else if (stock->fb_flag == 1 && stock->zb_flag == 0 
-                   && buy_price1 * ask_vol1 * 100 < 15e6) {
+                   && buy_price1 * ask_vol1 < 15e6) {
             double gaokai_price = ceil_round(pre_close * 1.015 + 1e-6, 2);
             if (buy_price1 >= gaokai_price) {
                 sell_price = gaokai_price;
                 condition = "封死";
             }
         } else if (stock->fb_flag == 0 && stock->zb_flag == 1 
-                   && buy_price1 * ask_vol1 * 100 < 3e6) {
+                   && buy_price1 * ask_vol1 < 3e6) {
             double gaokai_price = ceil_round(pre_close * 1.01 + 1e-6, 2);
             if (buy_price1 >= gaokai_price) {
                 sell_price = gaokai_price;
@@ -613,6 +669,9 @@ void AuctionSellStrategy::after_open_sell() {
         // 获取行情
         MarketSnapshot snap = api_->get_snapshot(symbol);
         if (!snap.valid) continue;
+        if (snap.high_limit > 0.0) {
+            stock->zt_price = snap.high_limit;
+        }
         
         double buy_price1 = snap.bid_price1;
         double sell_price1 = snap.ask_price1;
@@ -622,8 +681,11 @@ void AuctionSellStrategy::after_open_sell() {
             continue;
         }
         
-        double pre_close = stock->pre_close;
-        if (pre_close <= 0) continue;
+        double pre_close = 0.0;
+        if (stock->zt_price > 0.0) {
+            pre_close = std::round((stock->zt_price / 1.1 - 1e-6) * 100.0) / 100.0;
+        }
+        if (pre_close <= 0.0) continue;
         
         // txt line 359-361: 随机数量计算（较大的上限）
         // single_amt*5 - rand_amt1*2 + rand_amt1*4*rand() + normal*rand_amt2

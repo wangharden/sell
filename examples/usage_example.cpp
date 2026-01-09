@@ -24,7 +24,7 @@
 #include <atomic>
 #include <csignal>
 #include <fstream>
-
+#include<iostream>
 #ifdef _WIN32
 #include <direct.h>  // Windows: _mkdir
 #include <windows.h>  // Windows: FindFirstFile, FindNextFile
@@ -32,6 +32,7 @@
 #else
 #include <sys/stat.h>  // Linux: mkdir
 #include <dirent.h>   // Linux: opendir, readdir
+#include <unistd.h>   // Linux: getpid
 #define MKDIR(dir) mkdir(dir, 0755)
 #endif
 
@@ -287,6 +288,14 @@ static std::string get_date_yyyymmdd() {
     return std::string(date_str);
 }
 
+static int get_process_id() {
+#ifdef _WIN32
+    return static_cast<int>(GetCurrentProcessId());
+#else
+    return static_cast<int>(getpid());
+#endif
+}
+
 static void ensure_log_dir(const std::string& dir) {
     MKDIR(dir.c_str());
 }
@@ -313,179 +322,44 @@ std::string resolve_config_path() {
     return "";
 }
 
-void example_basic_usage(const ConfigReader& config, const std::string& csv_path) {
-    g_logger->set_context("example_basic_usage");  // 设置上下文
-    g_logger->info("=== 基础使用示例 ===");
-    
-    // 1. 创建交易API实例
-    auto trading_api = std::make_shared<SecTradingApi>();
-    g_logger->info("创建 SecTradingApi 实例");
-    
-    // 2. 创建行情API实例
-    auto market_api = std::make_shared<TdfMarketDataApi>();
-    market_api->set_csv_path(csv_path);  // 使用实际的CSV路径
-    g_logger->info("创建 TdfMarketDataApi 实例");
-    
-    // 3. 创建组合API
-    auto combined_api = std::make_shared<TradingMarketApi>(trading_api, market_api);
-    g_logger->info("创建 TradingMarketApi 组合实例");
-    
-    // 4. 连接交易服务 -  使用配置
-    g_logger->info("连接交易服务: " + config.get_trading_host() + ":" + std::to_string(config.get_trading_port()));
-    bool trade_ok = trading_api->connect(
-        config.get_config_section(),  // 使用配置段名称而非IP地址
-        config.get_trading_port(),
-        config.get_trading_account(),
-        config.get_trading_password()
-    );
-    if (!trade_ok) {
-        g_logger->error("交易服务连接失败");
-        return;
-    }
-    g_logger->info("交易服务连接成功");
-    
-    // 2. 连接行情服务
-    g_logger->info("连接行情服务: " + config.get_market_host() + ":" + std::to_string(config.get_market_port()));
-    bool market_ok = market_api->connect(
-        config.get_market_host(),
-        config.get_market_port(),
-        config.get_market_user(),
-        config.get_market_password()
-    );
-    if (!market_ok) {
-        g_logger->error("行情服务连接失败");
-        return;
-    }
-    g_logger->info("行情服务连接成功");
-    
-    // 6. 订阅股票行情（使用CSV中实际存在的股票）
-    std::vector<std::string> symbols = {"605287.SH", "600158.SH"};  // 德才股份、中体产业
-    g_logger->info("订阅股票行情: 605287.SH, 600158.SH");
-    market_api->subscribe(symbols);
-    
-    // 7. 模拟查询行情和下单
-    g_logger->info("--- 模拟交易流程 ---");
-    g_logger->info("等待TDF数据推送（5秒）...");
-    
-    // 等待数据推送并查看实时输出
-    for (int i = 0; i < 5; i++) {
-        std::this_thread::sleep_for(std::chrono::seconds(1));
-        std::cout << "等待中... " << (i + 1) << "/5 秒" << std::endl;
-    }
-    
-    // 查询数据
-    auto snapshot = market_api->get_snapshot("605287.SH");  // 查询CSV中存在的股票
-    
-    // 调试：打印查询结果
-    std::cout << "[调试] 查询 605287.SH 结果: valid=" << snapshot.valid 
-              << ", last_price=" << snapshot.last_price 
-              << ", symbol=" << snapshot.symbol << std::endl;
-    
-    if (snapshot.valid) {
-        g_logger->info("查询行情成功: 605287.SH 最新价=" + std::to_string(snapshot.last_price));
-        
-        // 模拟下单（实际不执行）
-        OrderRequest order;
-        order.symbol = "605287.SH";
-        order.volume = 100;
-        order.price = snapshot.last_price;
-        order.is_market = false;
-        
-        g_logger->info("准备下单: " + order.symbol + 
-                      ", 数量=" + std::to_string(order.volume) + 
-                      ", 价格=" + std::to_string(order.price));
-        
-        // TODO: 取消注释以实际下单
-        // std::string order_id = combined_api->place_order(order);
-        // if (!order_id.empty()) {
-        //     g_logger->info("下单成功, order_id=" + order_id);
-        // } else {
-        //     g_logger->error("下单失败");
-        // }
-        
-        g_logger->warn("下单功能未启用（等待交易配置）");
-    } else {
-        g_logger->warn("行情数据无效或未推送");
-    }
-    
-    g_logger->info("基础使用示例完成");
-    g_logger->flush();  // 示例结束时手动flush
-    g_logger->clear_context();
-}
-
-void example_separate_connections(const ConfigReader& config, const std::string& csv_path) {
-    g_logger->set_context("example_separate_connections");
-    g_logger->info("=== 独立连接示例 ===");
-    
-    // 分别管理交易和行情连接
-    auto trading_api = std::make_shared<SecTradingApi>();
-    auto market_api = std::make_shared<TdfMarketDataApi>();
-    market_api->set_csv_path(csv_path);  // 使用实际的CSV路径
-    
-    // 交易账号 - 使用配置
-    g_logger->info("连接交易服务: " + config.get_trading_host());
-    if (!trading_api->connect(config.get_config_section(), config.get_trading_port(), 
-                             config.get_trading_account(), config.get_trading_password())) {
-        g_logger->error("交易连接失败");
-        return;
-    }
-    
-    // 行情账号 - 使用配置
-    g_logger->info("连接行情服务: " + config.get_market_host());
-    if (!market_api->connect(config.get_market_host(), config.get_market_port(),
-                            config.get_market_user(), config.get_market_password())) {
-        g_logger->error("行情连接失败");
-        return;
-    }
-    
-    // 订阅股票行情
-    std::vector<std::string> symbols = {"600000.SH", "000001.SZ", "600519.SH"};
-    g_logger->info("订阅" + std::to_string(symbols.size()) + "只股票");
-    market_api->subscribe(symbols);
-    
-    // 查询行情
-    auto snapshot = market_api->get_snapshot("600000.SH");
-    if (snapshot.valid) {
-        g_logger->info("股票: " + snapshot.symbol + 
-                      ", 最新价: " + std::to_string(snapshot.last_price) + 
-                      ", 昨收: " + std::to_string(snapshot.pre_close));
-        
-        // 根据行情决定是否下单
-        double change_pct = (snapshot.last_price / snapshot.pre_close - 1.0) * 100.0;
-        if (change_pct > 5.0) {
-            g_logger->warn("涨幅超过5% (" + std::to_string(change_pct) + "%), 触发卖出策略");
-            
-            OrderRequest order;
-            order.symbol = snapshot.symbol;
-            order.volume = 100;
-            order.price = snapshot.bid_price1;  // 使用买一价
-            order.is_market = false;
-            
-            g_logger->info("模拟下单: " + order.symbol + 
-                          ", 数量=" + std::to_string(order.volume) + 
-                          ", 价格=" + std::to_string(order.price));
-            
-            // TODO: 实际下单
-            // trading_api->place_order(order);
-        } else {
-            g_logger->info("涨幅=" + std::to_string(change_pct) + "%, 未触发策略");
-        }
-    } else {
-        g_logger->warn("行情数据无效");
-    }
-    
-    g_logger->info("独立连接示例完成");
-    g_logger->flush();
-    g_logger->clear_context();
-}
 
 void example_market_data_only(const ConfigReader& config, const std::string& csv_path) {
     g_logger->set_context("example_market_data_only");
-    g_logger->info("=== 纯行情使用示例 ===");
+    g_logger->info("=== 纯行情使用示例（含逐笔成交）===");
     
     // 只使用行情API，不需要交易功能
     auto market_api = std::make_shared<TdfMarketDataApi>();
     market_api->set_csv_path(csv_path);  // 使用实际的CSV路径
+    
+    // 设置逐笔成交回调 - 打印每笔成交
+    std::atomic<int> transaction_count{0};
+    const int max_print = 100;  // 最多打印100条逐笔，避免刷屏
+    
+    market_api->set_transaction_callback([&transaction_count, max_print](const TransactionData& td) {
+        int count = transaction_count.fetch_add(1);
+        if (count < max_print) {
+            // 解析时间
+            int time_raw = td.timestamp;
+            int hour = time_raw / 10000000;
+            int minute = (time_raw / 100000) % 100;
+            int second = (time_raw / 1000) % 100;
+            int ms = time_raw % 1000;
+            
+            // 买卖方向
+            const char* bs_str = (td.bsf_flag == 1) ? "B" : 
+                                 (td.bsf_flag == 2) ? "S" : "-";
+            
+            char buf[256];
+            snprintf(buf, sizeof(buf), 
+                "[逐笔成交] %s %02d:%02d:%02d.%03d 价格=%.2f 量=%d 额=%.0f %s",
+                td.symbol.c_str(), hour, minute, second, ms,
+                td.price, td.volume, td.turnover, bs_str);
+            std::cout << buf << std::endl;
+        } else if (count == max_print) {
+            std::cout << "[逐笔成交] ... 已打印 " << max_print 
+                      << " 条，后续省略 ..." << std::endl;
+        }
+    });
     
     // 连接行情服务 -  使用配置
     g_logger->info("连接TDF行情服务: " + config.get_market_host() + ":" + std::to_string(config.get_market_port()));
@@ -544,6 +418,8 @@ void example_market_data_only(const ConfigReader& config, const std::string& csv
     }
     
     // 清理
+    g_logger->info("--- 逐笔成交统计 ---");
+    g_logger->info("共收到 " + std::to_string(transaction_count.load()) + " 条逐笔成交数据");
     g_logger->info("断开行情连接");
     market_api->disconnect();
     g_logger->info("纯行情示例完成");
@@ -599,9 +475,10 @@ void example_with_strategy(const ConfigReader& config, const std::string& csv_pa
     // 4. 创建策略实例 - 使用配置
     g_logger->info("--- 创建竞价/盘中/收盘策略 ---");
     std::string account_id = config.get_account_id();
+    double sell_to_mkt_ratio = config.get_strategy_sell_to_mkt_ratio();
     
     IntradaySellStrategy intraday_strategy(combined_api.get(), csv_path, account_id);
-    AuctionSellStrategy auction_strategy(combined_api.get(), csv_path, account_id);
+    AuctionSellStrategy auction_strategy(combined_api.get(), csv_path, account_id, sell_to_mkt_ratio);
     CloseSellStrategy close_strategy(combined_api.get(), account_id);
     g_logger->info("策略实例创建完成 (CSV: " + csv_path + ", Account: " + account_id + ")");
     
@@ -662,7 +539,8 @@ int main() {
     // 统一输出到文件 + 控制台
     const std::string log_dir = "./log";
     ensure_log_dir(log_dir);
-    const std::string all_log_path = log_dir + "/trading_test_data_" + get_date_yyyymmdd() + ".log";
+    const std::string log_name_base = "trading_test_data_pid" + std::to_string(get_process_id());
+    const std::string all_log_path = log_dir + "/" + log_name_base + "_" + get_date_yyyymmdd() + ".log";
     g_all_log.open(all_log_path.c_str(), std::ios::app);
     if (g_all_log.is_open()) {
         g_tee_cout.reset(new TeeStream(std::cout, g_all_log.rdbuf()));
@@ -671,7 +549,7 @@ int main() {
 
     // 初始化日志（文件名会自动包含日期）
     std::cerr << "[main] Logger初始化..." << std::endl;
-    g_logger.reset(new Logger("trading_test_data"));
+    g_logger.reset(new Logger(log_name_base));
     std::cerr << "[main] Logger初始化完成" << std::endl;
 
     std::signal(SIGINT, handle_termination_signal);
@@ -726,13 +604,26 @@ int main() {
     // 如果配置的CSV不存在或为空，自动查找最新的CSV
     if (!csv_valid) {
         g_logger->warn("配置的CSV文件不存在或未配置: " + csv_path);
-        g_logger->info("正在自动查找result目录下最新的CSV文件...");
+        g_logger->info("正在自动查找CSV文件...");
         
-        std::string latest_csv = find_latest_csv(".");
-        if (!latest_csv.empty()) {
-            csv_path = latest_csv;  // 使用找到的最新CSV文件
-            g_logger->info("✓ 已自动选择最新CSV: " + csv_path);
-        } else {
+        // 尝试多个目录查找CSV文件
+        std::vector<std::string> search_dirs = {".", "./result", "../", "../result"};
+        std::string latest_csv;
+        for (const auto& dir : search_dirs) {
+            latest_csv = find_latest_csv(dir);
+            if (!latest_csv.empty()) {
+                // 如果不是当前目录，需要加上目录前缀
+                if (dir != ".") {
+                    csv_path = dir + "/" + latest_csv;
+                } else {
+                    csv_path = latest_csv;
+                }
+                g_logger->info("✓ 在目录 " + dir + " 找到CSV: " + csv_path);
+                break;
+            }
+        }
+        
+        if (latest_csv.empty()) {
             g_logger->error("未找到任何CSV文件，程序无法继续");
             return 1;
         }

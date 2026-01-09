@@ -1,0 +1,21 @@
+{
+  "version": "1.0",
+  "root": "d:/work/sell",
+  "handbook": "feedback/result/docs/README.md",
+  "worklog_dir": "feedback/result/docs/worklog",
+  "incident_dir": "feedback/result/docs/incidents",
+  "runbook_dir": "feedback/result/docs/runbook",
+  "adr_dir": "feedback/result/docs/adr",
+  "strategy_docs": [
+    "result/docs/*.md"
+  ],
+  "sample_specs": [
+    "sample/qh2h*.txt"
+  ],
+  "vendor_docs": [
+    "sample/TDFAPI*/API/README_CSV*.md"
+  ],
+  "adapter_docs": [
+    "result/src/adapters/*.md"
+  ]
+}

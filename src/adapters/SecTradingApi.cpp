@@ -527,38 +527,61 @@ std::vector<OrderResult> SecTradingApi::query_orders() {
     
     std::cout << "[SEC] Querying orders from API..." << std::endl;
     
-    std::vector<ITPDK_DRWT> api_orders;
-    
-    // 调用真实API查询订单
-    // 参数: khh, nType(0=当日), nSortType, nRowcount(0=全部), nBrowindex, 
-    //       jys(空=全部), zqdm(空=全部), lWth(0=全部), arDrwt, nKFSBDBH
-    int64_t nRet = SECITPDK_QueryOrders(
-        account_id_.c_str(),  // 客户号
-        0,                    // 查询类型：0=当日委托
-        0,                    // 排序类型
-        0,                    // 请求行数（0=全部）
-        0,                    // 定位串
-        "",                   // 交易所（空=全部）
-        "",                   // 证券代码（空=全部）
-        0,                    // 委托号（0=全部）
-        api_orders            // 返回结果
-    );
-    
-    if (nRet < 0) {
-        char error_msg[256] = {0};
-        SECITPDK_GetLastError(error_msg);
-        std::string error(error_msg);
-        std::cerr << "[SEC] Query orders failed: " << error << std::endl;
-        return {};
+    std::vector<ITPDK_DRWT> all_orders;
+    std::vector<ITPDK_DRWT> page;
+    const int rowcount = 200;
+    int64_t brow_index = 0;
+    int page_no = 1;
+
+    while (true) {
+        page.clear();
+        // 参数: khh, nType(0=当日), nSortType, nRowcount, nBrowindex,
+        //       jys(空=全部), zqdm(空=全部), lWth(0=全部), arDrwt, nKFSBDBH
+        int64_t nRet = SECITPDK_QueryOrders(
+            account_id_.c_str(),  // 客户号
+            0,                    // 查询类型：0=当日委托
+            0,                    // 排序类型
+            rowcount,             // 请求行数
+            brow_index,           // 定位串
+            "",                   // 交易所（空=全部）
+            "",                   // 证券代码（空=全部）
+            0,                    // 委托号（0=全部）
+            page                  // 返回结果
+        );
+
+        if (nRet < 0) {
+            char error_msg[256] = {0};
+            SECITPDK_GetLastError(error_msg);
+            std::string error(error_msg);
+            std::cerr << "[SEC] Query orders failed: " << error << std::endl;
+            return {};
+        }
+        if (nRet == 0) {
+            break;
+        }
+
+        std::cout << "[SEC] Page " << page_no << " returned " << nRet << " records" << std::endl;
+        all_orders.insert(all_orders.end(), page.begin(), page.end());
+
+        if (page.size() < static_cast<size_t>(rowcount)) {
+            break;
+        }
+
+        int64_t next_index = page.back().BrowIndex;
+        if (next_index == brow_index) {
+            break;
+        }
+        brow_index = next_index;
+        ++page_no;
     }
-    
-    std::cout << "[SEC] Found " << nRet << " orders from API" << std::endl;
+
+    std::cout << "[SEC] Found " << all_orders.size() << " orders from API" << std::endl;
     
     // 转换API返回的数据为 OrderResult 格式
     std::vector<OrderResult> result;
-    result.reserve(api_orders.size());
+    result.reserve(all_orders.size());
     
-    for (const auto& api_order : api_orders) {
+    for (const auto& api_order : all_orders) {
         OrderResult order_result;
         order_result.success = true;
         std::string sys_id_str = std::to_string(api_order.OrderId);

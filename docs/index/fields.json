@@ -1,0 +1,246 @@
+{
+  "version": "1.0",
+  "description": "字段字典：变量来源、单位、换算规则及常见误用",
+  "fields": {
+    "position": {
+      "total": {
+        "type": "int64",
+        "unit": "股",
+        "source": "Position API (query_position)",
+        "refresh": "每次 on_timer 可刷新",
+        "notes": "总持仓，包含冻结部分"
+      },
+      "available": {
+        "type": "int64",
+        "unit": "股",
+        "source": "Position API (query_position)",
+        "refresh": "每次 on_timer 可刷新",
+        "notes": "可用量 = total - frozen",
+        "common_bugs": ["用旧快照值计算 sellable", "与 avail_vol 混淆"]
+      },
+      "frozen": {
+        "type": "int64",
+        "unit": "股",
+        "source": "Position API",
+        "notes": "挂单冻结量"
+      }
+    },
+    "stock_params": {
+      "avail_vol": {
+        "type": "int64",
+        "unit": "股",
+        "source": "初始化时从 Position.available 复制",
+        "refresh": "策略内手动刷新",
+        "common_bugs": ["Phase 间未刷新", "与 Position.available 不同步"]
+      },
+      "total_vol": {
+        "type": "int64",
+        "unit": "股",
+        "source": "初始化时从 Position.total 复制",
+        "notes": "通常不变"
+      },
+      "hold_vol": {
+        "type": "int64",
+        "unit": "股",
+        "source": "config.json (hold_vol) 或代码默认值",
+        "default": 300,
+        "notes": "底仓，保留不卖",
+        "common_bugs": ["与 available 概念混淆", "不同策略用不同值"]
+      },
+      "sold_vol": {
+        "type": "int64",
+        "unit": "股",
+        "scope": "per-symbol in StockParams (Intraday)",
+        "lifecycle": "on_timer 内累加",
+        "common_bugs": ["与 total_sell 混淆 (Auction 用 total_sell)"]
+      },
+      "total_sell": {
+        "type": "int64",
+        "unit": "股",
+        "scope": "per-symbol in StockParams (Auction)",
+        "lifecycle": "跨 Phase 累加",
+        "common_bugs": ["Phase3 未 round 到 100", "与 sold_vol 混淆"]
+      },
+      "zt_price": {
+        "type": "double",
+        "unit": "元",
+        "source": "Snapshot.high_limit 或 Snapshot.up_limit",
+        "formula": {
+          "普通股": "pre_close * 1.1",
+          "创业板/科创板": "pre_close * 1.2",
+          "ST": "pre_close * 1.05"
+        },
+        "precision": "0.01",
+        "common_bugs": ["反推 pre_close 时硬编码 1.1"]
+      },
+      "dt_price": {
+        "type": "double",
+        "unit": "元",
+        "source": "Snapshot.low_limit 或 Snapshot.down_limit",
+        "formula": "pre_close * (1 - 涨跌幅)",
+        "precision": "0.01"
+      },
+      "pre_close": {
+        "type": "double",
+        "unit": "元",
+        "source": "Snapshot.pre_close 或 zt_price / 涨跌幅系数",
+        "common_bugs": ["从 zt_price/1.1 推导不适用 ST/创业板"]
+      },
+      "open_price": {
+        "type": "double",
+        "unit": "元",
+        "source": "auction_data API (集合竞价开盘价)",
+        "refresh": "collect_auction_data 阶段设置一次",
+        "common_bugs": ["未初始化时为 0，导致 open_ratio 计算错误"]
+      },
+      "jjamt": {
+        "type": "double",
+        "unit": "元",
+        "source": "auction_data API (集合竞价成交额)",
+        "notes": "用于判断流动性",
+        "thresholds": {
+          "fb_flag": "< 15,000,000",
+          "zb_flag": "< 3,000,000"
+        },
+        "common_bugs": ["与 ask1_amt 混淆"]
+      },
+      "fb_flag": {
+        "type": "int",
+        "values": {"0": "非封板", "1": "昨日封板未炸板"},
+        "source": "CSV 配置"
+      },
+      "zb_flag": {
+        "type": "int",
+        "values": {"0": "未炸板", "1": "昨日封板后炸板"},
+        "source": "CSV 配置"
+      },
+      "second_flag": {
+        "type": "int",
+        "values": {"0": "非连板", "1": "连板"},
+        "source": "CSV 配置",
+        "notes": "优先级最高，覆盖 fb/zb 判断"
+      },
+      "sell_flag": {
+        "type": "int",
+        "values": {"0": "未完成", "1": "卖出完成"},
+        "scope": "per-symbol",
+        "common_bugs": ["collect_auction_data 会重置为 0"]
+      },
+      "return1_sell": {
+        "type": "int",
+        "values": {"0": "未执行", "1": "Phase1 已执行"},
+        "scope": "Auction Phase1 门控"
+      },
+      "limit_sell": {
+        "type": "int",
+        "values": {"0": "未执行", "1": "涨停半仓已执行"},
+        "scope": "Auction Phase3 门控"
+      },
+      "call_back": {
+        "type": "int",
+        "values": {"0": "待撤单", "1": "已处理"},
+        "scope": "撤单流程门控"
+      },
+      "userOrderId": {
+        "type": "string",
+        "source": "下单时设置的 remark",
+        "usage": "撤单匹配"
+      }
+    },
+    "snapshot": {
+      "bid_price1": {
+        "alias": ["bid1", "buy1"],
+        "type": "double",
+        "unit": "元",
+        "source": "TDF Snapshot",
+        "notes": "买一价"
+      },
+      "bid_volume1": {
+        "alias": ["bid1_vol", "buy1_vol"],
+        "type": "int64",
+        "unit": "股 (TDF 原始为股)",
+        "source": "TDF Snapshot",
+        "common_bugs": ["以为是手 (需确认)"]
+      },
+      "ask_price1": {
+        "alias": ["ask1", "sell1"],
+        "type": "double",
+        "unit": "元",
+        "source": "TDF Snapshot",
+        "notes": "卖一价"
+      },
+      "ask_volume1": {
+        "alias": ["ask1_vol", "sell1_vol"],
+        "type": "int64",
+        "unit": "股",
+        "source": "TDF Snapshot",
+        "common_bugs": ["与 ask1_amt 混淆", "单位误解 (股 vs 手)"]
+      },
+      "ask1_amt": {
+        "type": "double",
+        "unit": "元",
+        "formula": "ask_price1 * ask_volume1",
+        "notes": "卖一金额，用于流动性判断"
+      }
+    },
+    "config": {
+      "single_amt": {
+        "type": "int64",
+        "unit": "元",
+        "source": "config.json 或代码默认",
+        "default": {
+          "auction": 20000,
+          "intraday": 15000,
+          "close": 30000
+        },
+        "usage": "随机量计算基准"
+      },
+      "rand_amt1": {
+        "type": "int64",
+        "unit": "元",
+        "source": "config.json 或代码默认",
+        "usage": "正态分布中心"
+      },
+      "rand_amt2": {
+        "type": "int64",
+        "unit": "元",
+        "source": "config.json 或代码默认",
+        "usage": "正态分布标准差"
+      },
+      "sell_to_mkt_ratio": {
+        "type": "double",
+        "unit": "比例 (0-1)",
+        "source": "config.json",
+        "default": 0.1,
+        "usage": "total_sell <= ask1_vol * ratio",
+        "common_bugs": ["Phase2 只做 skip，Phase3 做 skip + cap"]
+      },
+      "trigger_probability": {
+        "type": "double",
+        "unit": "比例 (0-1)",
+        "values": {
+          "auction_phase2": 0.125,
+          "close_phase1": 0.15,
+          "intraday": 0.5
+        }
+      }
+    },
+    "derived": {
+      "sellable": {
+        "formula": "min(available - hold_vol, total - hold_vol)",
+        "unit": "股",
+        "notes": "可售量，需 round down 到 100"
+      },
+      "open_ratio": {
+        "formula": "open_price / pre_close",
+        "unit": "比例",
+        "usage": "Intraday 时间窗口选择"
+      },
+      "mid_price": {
+        "formula": "floor((bid1 + ask1) / 2, 0.01)",
+        "unit": "元",
+        "usage": "Intraday/Close 挂单价"
+      }
+    }
+  }
+}

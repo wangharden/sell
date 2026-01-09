@@ -477,15 +477,14 @@ void CloseSellStrategy::phase4_bulk_sell() {
 
 int CloseSellStrategy::get_current_time() const {
     auto now = std::chrono::system_clock::now();
-    auto now_time_t = std::chrono::system_clock::to_time_t(now);
-    std::tm now_tm;
+    std::time_t now_c = std::chrono::system_clock::to_time_t(now);
+    std::tm local_tm;
 #ifdef _WIN32
-    localtime_s(&now_tm, &now_time_t);
+    localtime_s(&local_tm, &now_c);
 #else
-    localtime_r(&now_time_t, &now_tm);
+    localtime_r(&now_c, &local_tm);
 #endif
-    
-    return now_tm.tm_hour * 10000 + now_tm.tm_min * 100 + now_tm.tm_sec;
+    return local_tm.tm_hour * 10000 + local_tm.tm_min * 100 + local_tm.tm_sec;
 }
 
 void CloseSellStrategy::print_status() const {

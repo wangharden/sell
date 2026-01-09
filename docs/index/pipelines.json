@@ -1,0 +1,158 @@
+{
+  "version": "2.0",
+  "description": "Pipeline 索引 - 函数级定位，指向模块级文档",
+  "modules": {
+    "auction": {
+      "doc": "feedback/result/docs/modules/auction.md",
+      "source": "result/src/strategies/AuctionSellStrategy.h",
+      "summary": "竞价卖出策略 09:20-09:30"
+    },
+    "intraday": {
+      "doc": "feedback/result/docs/modules/intraday.md",
+      "source": "result/src/strategies/IntradaySellStrategy.h",
+      "summary": "盘中卖出策略 09:30-14:49"
+    },
+    "close": {
+      "doc": "feedback/result/docs/modules/close.md",
+      "source": "result/src/strategies/CloseSellStrategy.h",
+      "summary": "收盘卖出策略 14:53-15:00"
+    }
+  },
+  "pipelines": [
+    {
+      "id": "auction_check_market_data",
+      "module": "auction",
+      "function": "AuctionSellStrategy::check_market_data",
+      "window": "09:20:05-09:23:00",
+      "depends_on": [],
+      "outputs": ["pre_close", "zt_price", "dt_price"]
+    },
+    {
+      "id": "auction_phase1_return1_sell",
+      "module": "auction",
+      "function": "AuctionSellStrategy::phase1_return1_sell",
+      "window": "09:23:30-09:25:00",
+      "depends_on": ["auction_check_market_data"],
+      "outputs": ["total_sell", "return1_sell"]
+    },
+    {
+      "id": "auction_phase2_conditional_sell",
+      "module": "auction",
+      "function": "AuctionSellStrategy::phase2_conditional_sell",
+      "window": "09:23:40-09:24:45",
+      "depends_on": ["auction_phase1_return1_sell"],
+      "outputs": ["total_sell"]
+    },
+    {
+      "id": "auction_phase3_final_sell",
+      "module": "auction",
+      "function": "AuctionSellStrategy::phase3_final_sell",
+      "window": "09:24:50-09:25:00",
+      "depends_on": ["auction_phase2_conditional_sell"],
+      "outputs": ["total_sell", "limit_sell", "sell_flag"]
+    },
+    {
+      "id": "auction_cancel_orders",
+      "module": "auction",
+      "function": "AuctionSellStrategy::cancel_auction_orders",
+      "window": "09:25:13-09:25:23",
+      "depends_on": ["auction_phase3_final_sell"],
+      "outputs": ["call_back"]
+    },
+    {
+      "id": "auction_collect_auction_data",
+      "module": "auction",
+      "function": "AuctionSellStrategy::collect_auction_data",
+      "window": "09:26:00-09:28:10",
+      "depends_on": ["auction_cancel_orders"],
+      "outputs": ["open_price", "jjamt", "sell_flag"]
+    },
+    {
+      "id": "auction_after_open_sell",
+      "module": "auction",
+      "function": "AuctionSellStrategy::after_open_sell",
+      "window": "09:29:55-09:30:40",
+      "depends_on": ["auction_collect_auction_data"],
+      "outputs": ["total_sell"]
+    },
+    {
+      "id": "intraday_collect_auction_data",
+      "module": "intraday",
+      "function": "IntradaySellStrategy::collect_auction_data",
+      "window": "09:26:00-11:28:10",
+      "depends_on": [],
+      "outputs": ["open_price", "jjamt", "pre_close"]
+    },
+    {
+      "id": "intraday_execute_sell",
+      "module": "intraday",
+      "function": "IntradaySellStrategy::execute_sell",
+      "window": "09:30:03-11:30:00, 13:00:00-14:48:55",
+      "depends_on": ["intraday_collect_auction_data"],
+      "outputs": ["sold_vol"]
+    },
+    {
+      "id": "intraday_cancel_orders",
+      "module": "intraday",
+      "function": "IntradaySellStrategy::cancel_orders",
+      "window": "14:49:00-14:51:00",
+      "depends_on": ["intraday_execute_sell"],
+      "outputs": ["call_back"]
+    },
+    {
+      "id": "close_phase1_random_sell",
+      "module": "close",
+      "function": "CloseSellStrategy::phase1_random_sell",
+      "window": "14:53:00-14:56:45",
+      "depends_on": [],
+      "outputs": ["sold_volumes_", "order_ids_"]
+    },
+    {
+      "id": "close_phase2_cancel_orders",
+      "module": "close",
+      "function": "CloseSellStrategy::phase2_cancel_orders",
+      "window": "14:56:45-14:57:00",
+      "depends_on": ["close_phase1_random_sell"],
+      "outputs": ["callbacks_"]
+    },
+    {
+      "id": "close_phase3_test_sell",
+      "module": "close",
+      "function": "CloseSellStrategy::phase3_test_sell",
+      "window": "14:57:20-14:57:50",
+      "depends_on": ["close_phase2_cancel_orders"],
+      "outputs": ["order_ids_"]
+    },
+    {
+      "id": "close_phase4_bulk_sell",
+      "module": "close",
+      "function": "CloseSellStrategy::phase4_bulk_sell",
+      "window": "14:58:00-14:59:50",
+      "depends_on": ["close_phase3_test_sell"],
+      "outputs": ["order_ids_"]
+    }
+  ],
+  "core_pipelines": [
+    {
+      "id": "csv_config_load",
+      "module": "core",
+      "function": "CsvConfig::load_from_file",
+      "source": "result/src/core/CsvConfig.cpp",
+      "outputs": ["StockParams"]
+    },
+    {
+      "id": "marketdata_tdf_snapshot",
+      "module": "adapter",
+      "function": "TdfMarketDataApi::HandleMarketData",
+      "source": "result/src/adapters/TdfMarketDataApi.cpp",
+      "outputs": ["MarketSnapshot"]
+    },
+    {
+      "id": "trading_place_order",
+      "module": "adapter",
+      "function": "SecTradingApi::place_order",
+      "source": "result/src/adapters/SecTradingApi.cpp",
+      "outputs": ["order_id", "remark"]
+    }
+  ]
+}

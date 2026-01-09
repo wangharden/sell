@@ -4,7 +4,6 @@
 #include "../core/CsvConfig.h"
 #include "../core/SellStrategy.h"
 #include "../core/rng.h"
-#include <memory>
 #include <string>
 
 /// @brief 盘中卖出策略（复现txt qh2h盘中卖出.txt逻辑）
@@ -52,6 +51,8 @@ private:
     
     // 运行时状态
     int before_check_ = 0;          // txt line 21: 集合竞价数据收集标志
+    int cancel_attempts_ = 0;
+    int cancel_attempt_date_ = 0;
     
     /// @brief Phase 1: 收集集合竞价数据 (09:26:00)
     void collect_auction_data();

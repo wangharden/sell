@@ -15,6 +15,7 @@
     },
     "strategy": {
         "csv_path": "2025-09-10_yx1h.csv",
-        "account_id": "010000227342"     
+        "account_id": "010000227342" ,
+        "sell_to_mkt_ratio": 0.1  
     }
 }

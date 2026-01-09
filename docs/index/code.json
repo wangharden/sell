@@ -1,0 +1,55 @@
+{
+  "version": "1.0",
+  "root": "d:/work/sell",
+  "entry_points": [
+    "result/examples/usage_example.cpp",
+    "result/src/strategies/AuctionSellStrategy.cpp",
+    "result/src/strategies/CloseSellStrategy.cpp",
+    "result/src/strategies/IntradaySellStrategy.cpp"
+  ],
+  "categories": {
+    "strategies": [
+      "result/src/strategies/AuctionSellStrategy.h",
+      "result/src/strategies/AuctionSellStrategy.cpp",
+      "result/src/strategies/CloseSellStrategy.h",
+      "result/src/strategies/CloseSellStrategy.cpp",
+      "result/src/strategies/IntradaySellStrategy.h",
+      "result/src/strategies/IntradaySellStrategy.cpp"
+    ],
+    "core": [
+      "result/src/core/TradingMarketApi.h",
+      "result/src/core/TradingManager.cpp",
+      "result/src/core/MarketData.h",
+      "result/src/core/Order.h",
+      "result/src/core/ITradingApi.h",
+      "result/src/core/IMarketDataApi.h",
+      "result/src/core/CsvConfig.h",
+      "result/src/core/CsvConfig.cpp",
+      "result/src/core/Config.h",
+      "result/src/core/Config.cpp",
+      "result/src/core/ConfigReader.h",
+      "result/src/core/SellStrategy.h",
+      "result/src/core/SellStrategy.cpp",
+      "result/src/core/util.h",
+      "result/src/core/util.cpp",
+      "result/src/core/rng.h",
+      "result/src/core/TeeStream.h"
+    ],
+    "adapters": [
+      "result/src/adapters/TdfMarketDataApi.h",
+      "result/src/adapters/TdfMarketDataApi.cpp",
+      "result/src/adapters/SecTradingApi.cpp",
+      "result/include/SecTradingApi.h",
+      "result/include/CompositeAdapter.h"
+    ],
+    "public_api": [
+      "result/include/sell_strategy_api.h",
+      "result/include/sell_strategy_c_api.h",
+      "result/include/Config.h",
+      "result/include/ImprovedLogger.h"
+    ],
+    "build": [
+      "result/CMakeLists.txt"
+    ]
+  }
+}

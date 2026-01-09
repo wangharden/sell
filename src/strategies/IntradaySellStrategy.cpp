@@ -11,7 +11,9 @@ IntradaySellStrategy::IntradaySellStrategy(
     TradingMarketApi* api,
     const std::string& csv_path,
     const std::string& account_id
-) : api_(api), csv_path_(csv_path), account_id_(account_id) {
+) : api_(api),
+    csv_path_(csv_path),
+    account_id_(account_id) {
 }
 
 bool IntradaySellStrategy::init() {
@@ -156,8 +158,20 @@ void IntradaySellStrategy::execute_sell() {
         
         // 读取开盘数据，获取策略
         double jjamt = stock->jjamt;
-        double open_ratio = (stock->pre_close > 0) ? 
-            (stock->open_price / stock->pre_close) : 0.0;
+        double limit_up = stock->zt_price;
+        if (limit_up <= 0.0) {
+            MarketSnapshot snap = api_->get_snapshot(symbol);
+            if (snap.valid && snap.high_limit > 0.0) {
+                limit_up = snap.high_limit;
+                stock->zt_price = snap.high_limit;
+            }
+        }
+        double pre_close = 0.0;
+        if (limit_up > 0.0) {
+            pre_close = std::round((limit_up / 1.1 - 1e-6) * 100.0) / 100.0;
+        }
+        double open_ratio = (pre_close > 0.0) ? 
+            (stock->open_price / pre_close) : 0.0;
         
         auto windows = sell_strategy_.get_windows(condition, jjamt, open_ratio);
         
@@ -321,7 +335,18 @@ void IntradaySellStrategy::sell_order(
 }
 
 void IntradaySellStrategy::cancel_orders() {
-    std::cout << "=== Canceling unfilled orders ===" << std::endl;
+    int today = get_current_date();
+    if (cancel_attempt_date_ != today) {
+        cancel_attempt_date_ = today;
+        cancel_attempts_ = 0;
+    }
+    if (cancel_attempts_ >= 3) {
+        return;
+    }
+    ++cancel_attempts_;
+
+    std::cout << "=== Canceling unfilled orders (attempt " 
+              << cancel_attempts_ << "/3) ===" << std::endl;
     
     // txt line 176-190逻辑:
     // 1. 获取所有订单列表 get_trade_detail_data(MyaccountID, 'STOCK', 'order')
@@ -339,7 +364,7 @@ void IntradaySellStrategy::cancel_orders() {
         auto* stock = csv_config_.get_stock(symbol);
         if (!stock) continue;
         
-        // 精确匹配remark
+        // 匹配remark
         std::string expected_remark = "盘中卖出" + symbol;
         
         for (const auto& order : orders) {
@@ -359,7 +384,8 @@ void IntradaySellStrategy::cancel_orders() {
                 }
                 std::cout << " filled=" << order.filled_volume << "/" << order.volume << std::endl;
                 
-                if (order.status != OrderResult::Status::FILLED) {
+                if (order.status == OrderResult::Status::SUBMITTED ||
+                    order.status == OrderResult::Status::PARTIAL) {
                     if (api_->cancel_order(order.order_id)) {
                         cancel_count++;
                         std::cout << "    ✓ Cancelled order: " << symbol 
@@ -397,28 +423,29 @@ std::string IntradaySellStrategy::determine_condition(const StockParams& params)
 
 int IntradaySellStrategy::get_current_time() const {
     auto now = std::chrono::system_clock::now();
-    auto now_time_t = std::chrono::system_clock::to_time_t(now);
-    std::tm now_tm;
+    std::time_t now_c = std::chrono::system_clock::to_time_t(now);
+    std::tm local_tm;
 #ifdef _WIN32
-    localtime_s(&now_tm, &now_time_t);
+    localtime_s(&local_tm, &now_c);
 #else
-    localtime_r(&now_time_t, &now_tm);
+    localtime_r(&now_c, &local_tm);
 #endif
-    
-    return now_tm.tm_hour * 10000 + now_tm.tm_min * 100 + now_tm.tm_sec;
+    return local_tm.tm_hour * 10000 + local_tm.tm_min * 100 + local_tm.tm_sec;
 }
 
 int IntradaySellStrategy::get_current_date() const {
     auto now = std::chrono::system_clock::now();
-    auto now_time_t = std::chrono::system_clock::to_time_t(now);
-    std::tm now_tm;
+    std::time_t now_c = std::chrono::system_clock::to_time_t(now);
+    std::tm local_tm;
 #ifdef _WIN32
-    localtime_s(&now_tm, &now_time_t);
+    localtime_s(&local_tm, &now_c);
 #else
-    localtime_r(&now_time_t, &now_tm);
+    localtime_r(&now_c, &local_tm);
 #endif
-    
-    return (now_tm.tm_year + 1900) * 10000 + (now_tm.tm_mon + 1) * 100 + now_tm.tm_mday;
+    int year = local_tm.tm_year + 1900;
+    int month = local_tm.tm_mon + 1;
+    int day = local_tm.tm_mday;
+    return year * 10000 + month * 100 + day;
 }
 
 void IntradaySellStrategy::print_status() const {
