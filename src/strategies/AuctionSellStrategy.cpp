@@ -9,11 +9,15 @@ AuctionSellStrategy::AuctionSellStrategy(
     TradingMarketApi* api,
     const std::string& csv_path,
     const std::string& account_id,
-    double sell_to_mkt_ratio
+    double sell_to_mkt_ratio,
+    double phase1_sell_ratio,
+    int64_t hold_vol
 ) : api_(api),
     csv_path_(csv_path),
     account_id_(account_id),
+    hold_vol_(hold_vol),
     sell_to_mkt_ratio_(sell_to_mkt_ratio),
+    phase1_sell_ratio_(phase1_sell_ratio),
     uniform_dist_(0.0, 1.0),
     normal_dist_(0.0, 1.0) {
     std::random_device rd;
@@ -172,9 +176,10 @@ void AuctionSellStrategy::phase1_return1_sell() {
             continue;
         }
         
-        // 无条件卖出10%仓位，挂跌停价
-        vol = (vol / 100 / 10) * 100;  // 10%向下取整到100股
-        if (vol <= 0) continue;
+        // 无条件卖出指定比例仓位，挂跌停价
+        int64_t sell_vol = static_cast<int64_t>(vol * phase1_sell_ratio_);
+        sell_vol = (sell_vol / 100) * 100;  // 向下取整到100股
+        if (sell_vol <= 0) continue;
 
         if (stock->dt_price <= 0.0) {
             std::cout << "  [Phase1] " << symbol << " skip: dt_price<=0" << std::endl;
@@ -187,16 +192,16 @@ void AuctionSellStrategy::phase1_return1_sell() {
         req.account_id = account_id_;
         req.symbol = symbol;
         req.price = stock->dt_price;  // 跌停价
-        req.volume = vol;
+        req.volume = sell_vol;
         req.is_market = false;
         req.remark = "盘前卖出" + symbol;
         
         std::string order_id = api_->place_order(req);
         
         if (!order_id.empty()) {
-            stock->total_sell += vol;
+            stock->total_sell += sell_vol;
             stock->userOrderId = req.remark;
-            std::cout << "  [Phase1] " << symbol << " sell " << vol 
+            std::cout << "  [Phase1] " << symbol << " sell " << sell_vol 
                       << " @ " << stock->dt_price << ", order=" << order_id << std::endl;
         }
     }
@@ -465,7 +470,7 @@ void AuctionSellStrategy::phase3_final_sell() {
                 req.price = gaokai_price;
                 req.volume = sell_vol;
                 req.is_market = false;
-                req.remark = "盘前卖出" + symbol;
+                req.remark = "盘中卖出" + symbol;
                 
                 std::string order_id = api_->place_order(req);
                 
@@ -486,7 +491,7 @@ void AuctionSellStrategy::phase3_final_sell() {
                 req.price = gaokai_price;
                 req.volume = sell_vol;
                 req.is_market = false;
-                req.remark = "盘前卖出" + symbol;
+                req.remark = "盘中卖出" + symbol;
                 
                 std::string order_id = api_->place_order(req);
                 
@@ -718,7 +723,7 @@ void AuctionSellStrategy::after_open_sell() {
                 req.price = sell_price;
                 req.volume = vol;
                 req.is_market = false;
-                req.remark = "盘前卖出" + symbol;
+                req.remark = "盘中卖出" + symbol;
                 
                 std::string order_id = api_->place_order(req);
                 
@@ -748,7 +753,7 @@ void AuctionSellStrategy::after_open_sell() {
                 req.price = sell_price;
                 req.volume = vol;
                 req.is_market = false;
-                req.remark = "盘前卖出" + symbol;
+                req.remark = "盘中卖出" + symbol;
                 
                 std::string order_id = api_->place_order(req);
                 

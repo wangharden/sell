@@ -10,10 +10,12 @@
 IntradaySellStrategy::IntradaySellStrategy(
     TradingMarketApi* api,
     const std::string& csv_path,
-    const std::string& account_id
+    const std::string& account_id,
+    int64_t hold_vol
 ) : api_(api),
     csv_path_(csv_path),
-    account_id_(account_id) {
+    account_id_(account_id),
+    hold_vol_(hold_vol) {
 }
 
 bool IntradaySellStrategy::init() {

@@ -16,7 +16,8 @@ public:
     IntradaySellStrategy(
         TradingMarketApi* api,
         const std::string& csv_path,
-        const std::string& account_id
+        const std::string& account_id,
+        int64_t hold_vol
     );
     
     /// @brief 初始化策略（对应txt中的init函数）

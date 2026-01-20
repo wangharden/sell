@@ -21,7 +21,8 @@ class CloseSellStrategy {
 public:
     CloseSellStrategy(
         TradingMarketApi* api,
-        const std::string& account_id
+        const std::string& account_id,
+        int64_t hold_vol
     );
     
     ~CloseSellStrategy() = default;

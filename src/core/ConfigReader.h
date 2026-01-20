@@ -286,4 +286,84 @@ public:
         }
         return default_val;
     }
+
+    /// @brief 获取策略 phase1_sell_ratio
+    double get_strategy_phase1_sell_ratio(double default_val = 0.1) const {
+        size_t strategy_pos = content_.find("\"strategy\"");
+        if (strategy_pos == std::string::npos) return default_val;
+
+        size_t key_pos = content_.find("\"phase1_sell_ratio\"", strategy_pos);
+        if (key_pos == std::string::npos) return default_val;
+
+        size_t colon = content_.find(":", key_pos);
+        if (colon == std::string::npos) return default_val;
+
+        size_t num_start = colon + 1;
+        while (num_start < content_.length() &&
+               (content_[num_start] == ' ' || content_[num_start] == '\t' ||
+                content_[num_start] == '\n')) {
+            num_start++;
+        }
+
+        size_t num_end = num_start;
+        bool dot_seen = false;
+        if (num_end < content_.length() &&
+            (content_[num_end] == '-' || content_[num_end] == '+')) {
+            num_end++;
+        }
+        while (num_end < content_.length()) {
+            char c = content_[num_end];
+            if ((c >= '0' && c <= '9') || (c == '.' && !dot_seen)) {
+                if (c == '.') {
+                    dot_seen = true;
+                }
+                num_end++;
+                continue;
+            }
+            break;
+        }
+
+        if (num_end > num_start) {
+            return std::stod(content_.substr(num_start, num_end - num_start));
+        }
+        return default_val;
+    }
+
+    /// @brief 获取策略 hold_vol
+    int64_t get_strategy_hold_vol(int64_t default_val = 300) const {
+        size_t strategy_pos = content_.find("\"strategy\"");
+        if (strategy_pos == std::string::npos) return default_val;
+
+        size_t key_pos = content_.find("\"hold_vol\"", strategy_pos);
+        if (key_pos == std::string::npos) return default_val;
+
+        size_t colon = content_.find(":", key_pos);
+        if (colon == std::string::npos) return default_val;
+
+        size_t num_start = colon + 1;
+        while (num_start < content_.length() &&
+               (content_[num_start] == ' ' || content_[num_start] == '\t' ||
+                content_[num_start] == '\n')) {
+            num_start++;
+        }
+
+        size_t num_end = num_start;
+        if (num_end < content_.length() &&
+            (content_[num_end] == '-' || content_[num_end] == '+')) {
+            num_end++;
+        }
+        while (num_end < content_.length()) {
+            char c = content_[num_end];
+            if (c >= '0' && c <= '9') {
+                num_end++;
+                continue;
+            }
+            break;
+        }
+
+        if (num_end > num_start) {
+            return static_cast<int64_t>(std::stoll(content_.substr(num_start, num_end - num_start)));
+        }
+        return default_val;
+    }
 };

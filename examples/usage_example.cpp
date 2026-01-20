@@ -476,10 +476,12 @@ void example_with_strategy(const ConfigReader& config, const std::string& csv_pa
     g_logger->info("--- 创建竞价/盘中/收盘策略 ---");
     std::string account_id = config.get_account_id();
     double sell_to_mkt_ratio = config.get_strategy_sell_to_mkt_ratio();
+    double phase1_sell_ratio = config.get_strategy_phase1_sell_ratio();
+    int64_t hold_vol = config.get_strategy_hold_vol();
     
-    IntradaySellStrategy intraday_strategy(combined_api.get(), csv_path, account_id);
-    AuctionSellStrategy auction_strategy(combined_api.get(), csv_path, account_id, sell_to_mkt_ratio);
-    CloseSellStrategy close_strategy(combined_api.get(), account_id);
+    IntradaySellStrategy intraday_strategy(combined_api.get(), csv_path, account_id, hold_vol);
+    AuctionSellStrategy auction_strategy(combined_api.get(), csv_path, account_id, sell_to_mkt_ratio, phase1_sell_ratio, hold_vol);
+    CloseSellStrategy close_strategy(combined_api.get(), account_id, hold_vol);
     g_logger->info("策略实例创建完成 (CSV: " + csv_path + ", Account: " + account_id + ")");
     
     // 5. 初始化策略
@@ -715,9 +717,11 @@ int main() {
                 
                 // 创建策略并运行（DRY-RUN模式）
                 g_logger->info("创建盘中卖出策略（DRY-RUN模式）...");
+                int64_t hold_vol = config.get_strategy_hold_vol();
                 IntradaySellStrategy strategy(combined_api.get(), 
                                               csv_path, 
-                                              config.get_account_id());
+                                              config.get_account_id(),
+                                              hold_vol);
                 if (!strategy.init()) {
                     g_logger->error("策略初始化失败！");
                     return 1;

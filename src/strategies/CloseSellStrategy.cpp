@@ -8,9 +8,11 @@
 
 CloseSellStrategy::CloseSellStrategy(
     TradingMarketApi* api,
-    const std::string& account_id
+    const std::string& account_id,
+    int64_t hold_vol
 ) : api_(api), 
     account_id_(account_id),
+    hold_vol_(hold_vol),
     uniform_dist_(0.0, 1.0),
     normal_dist_(0.0, 1.0) {
     std::random_device rd;
