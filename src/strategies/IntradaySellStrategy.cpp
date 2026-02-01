@@ -11,10 +11,13 @@ IntradaySellStrategy::IntradaySellStrategy(
     TradingMarketApi* api,
     const std::string& csv_path,
     const std::string& account_id,
-    int64_t hold_vol
+    int64_t hold_vol,
+    double input_amt
 ) : api_(api),
     csv_path_(csv_path),
     account_id_(account_id),
+    single_amt_(input_amt * 0.025),
+    rand_amt1_(input_amt * 0.02),
     hold_vol_(hold_vol) {
 }
 
@@ -86,7 +89,20 @@ void IntradaySellStrategy::on_timer() {
 
 void IntradaySellStrategy::collect_auction_data() {
     std::cout << "=== Collecting auction data ===" << std::endl;
-    
+
+    // 采样一次“竞价阶段结束后的可用仓位”，作为盘中 keep_position 的基准分母。
+    // 注意：这里不要求包含 AuctionSellStrategy::after_open_sell() 的影响。
+    if (!base_captured_) {
+        auto positions = api_->query_positions();
+        for (const auto& pos : positions) {
+            // 只记录本策略关注的股票
+            if (csv_config_.get_stock(pos.symbol)) {
+                base_avail_after_auction_[pos.symbol] = pos.available;
+            }
+        }
+        base_captured_ = true;
+    }
+
     // txt line 132-143: 获取09:27前最后一条tick的amount和open字段
     // jjamt_data = ContextInfo.get_market_data_ex(fields=['open', 'volume', 'amount', ...], 
     //              stock_code=[key], period='tick', ...)[key]
@@ -183,7 +199,7 @@ void IntradaySellStrategy::execute_sell() {
             if (now >= window.start_time && now < window.end_time) {
                 // 50%概率随机跳过（txt line 165）
                 double p = rng_.uni();
-                if (p >= 0.5) {
+                if (p >= 0.16) {
                     std::cout << "  " << symbol << ": skip (random p=" << p << ")" << std::endl;
                     break;
                 }
@@ -239,11 +255,24 @@ void IntradaySellStrategy::sell_order(
     }
     
     // txt line 208-210: 检查保留仓位
-    if ((double)(stock->avail_vol - hold_vol_) / stock->total_vol <= keep_position) {
-        std::cout << "    " << symbol << ": reach keep_position=" << keep_position 
-                  << ", sold_ratio=" << (double)stock->sold_vol / stock->total_vol << std::endl;
-        return;
+    {
+        const int64_t avail_for_ratio = std::max<int64_t>(0, stock->avail_vol - hold_vol_);
+        auto it = base_avail_after_auction_.find(symbol);
+        const int64_t base = (it != base_avail_after_auction_.end()) ? it->second : 0;
+        const int64_t denom = (base > 0) ? base : stock->total_vol;  // 兜底仍使用 init() 的 total_vol
+
+        if (denom > 0) {
+            if (static_cast<double>(avail_for_ratio) / static_cast<double>(denom) <= keep_position) {
+                const double sold_ratio = (stock->total_vol > 0)
+                    ? (static_cast<double>(stock->sold_vol) / static_cast<double>(stock->total_vol))
+                    : 0.0;
+                std::cout << "    " << symbol << ": reach keep_position=" << keep_position 
+                          << ", sold_ratio=" << sold_ratio << std::endl;
+                return;
+            }
+        }
     }
+    // keep_position 判断已在上方用 base_avail_after_auction_/total_vol 兜底处理
     
     // txt line 212-220: 获取实时orderbook
     MarketSnapshot snapshot = api_->get_snapshot(symbol);

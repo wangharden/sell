@@ -30,6 +30,7 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/src/core
     ${CMAKE_SOURCE_DIR}/src/adapters
     ${CMAKE_SOURCE_DIR}/src/strategies
+    ${CMAKE_SOURCE_DIR}/src/modules
     ${SDK_INCLUDE_DIR}
 )
 
@@ -51,6 +52,25 @@ set(USAGE_EXAMPLE_SOURCES
 
 # ==================== 编译可执行文件 ====================
 add_executable(usage_example ${USAGE_EXAMPLE_SOURCES})
+
+# ==================== Multi-module runner ====================
+set(RUNNER_SOURCES
+    main.cpp
+    src/core/QueuedTradingApi.cpp
+    src/modules/Qh2hSellModule.cpp
+    src/modules/BaseCancelModule.cpp
+    src/modules/UsageExampleModule.cpp
+    src/adapters/TdfMarketDataApi.cpp
+    src/adapters/SecTradingApi.cpp
+    src/strategies/IntradaySellStrategy.cpp
+    src/strategies/AuctionSellStrategy.cpp
+    src/strategies/CloseSellStrategy.cpp
+    src/core/CsvConfig.cpp
+    src/core/SellStrategy.cpp
+    src/core/util.cpp
+)
+
+add_executable(main ${RUNNER_SOURCES})
 
 # ==================== 拷贝配置文件到构建目录 ====================
 # 拷贝CSV和config.json到构建输出目录，确保程序能找到配置文件
@@ -111,8 +131,16 @@ if(WIN32)
         secitpdk
         ws2_32
     )
+    target_link_libraries(main
+        TDFAPI30
+        secitpdk
+        ws2_32
+    )
     
     set_target_properties(usage_example PROPERTIES
+        VS_DEBUGGER_ENVIRONMENT "PATH=${SDK_LIB_DIR};$ENV{PATH}"
+    )
+    set_target_properties(main PROPERTIES
         VS_DEBUGGER_ENVIRONMENT "PATH=${SDK_LIB_DIR};$ENV{PATH}"
     )
 else()
@@ -122,9 +150,19 @@ else()
         secitpdk
         pthread
     )
+    target_link_libraries(main
+        TDFAPI30
+        secitpdk
+        pthread
+    )
     
     # RPATH 配置（自动查找 .so 文件，无需复制）
     set_target_properties(usage_example PROPERTIES
+        BUILD_RPATH "${SDK_LIB_DIR}"
+        INSTALL_RPATH "$ORIGIN:$ORIGIN/../lib/linux:${SDK_LIB_DIR}"
+        BUILD_RPATH_USE_ORIGIN ON
+    )
+    set_target_properties(main PROPERTIES
         BUILD_RPATH "${SDK_LIB_DIR}"
         INSTALL_RPATH "$ORIGIN:$ORIGIN/../lib/linux:${SDK_LIB_DIR}"
         BUILD_RPATH_USE_ORIGIN ON

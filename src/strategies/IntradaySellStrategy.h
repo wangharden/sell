@@ -5,6 +5,7 @@
 #include "../core/SellStrategy.h"
 #include "../core/rng.h"
 #include <string>
+#include <unordered_map>
 
 /// @brief 盘中卖出策略（复现txt qh2h盘中卖出.txt逻辑）
 class IntradaySellStrategy {
@@ -13,11 +14,13 @@ public:
     /// @param api 交易和行情组合API接口
     /// @param csv_path CSV配置文件路径
     /// @param account_id 账号ID
+    /// @param input_amt 基准金额（用于单笔金额/随机区间）
     IntradaySellStrategy(
         TradingMarketApi* api,
         const std::string& csv_path,
         const std::string& account_id,
-        int64_t hold_vol
+        int64_t hold_vol,
+        double input_amt
     );
     
     /// @brief 初始化策略（对应txt中的init函数）
@@ -45,8 +48,8 @@ private:
     RNG rng_;
     
     // 全局参数（对应txt中的全局变量）
-    double single_amt_ = 15000.0;   // txt line 16
-    double rand_amt1_ = 20000.0;    // txt line 17
+    double single_amt_ = 0.0;       // input_amt * 0.025
+    double rand_amt1_ = 0.0;        // input_amt * 0.02
     double rand_amt2_ = 5000.0;     // txt line 18
     int64_t hold_vol_ = 300;        // 保留仓位 txt line 19
     
@@ -54,6 +57,10 @@ private:
     int before_check_ = 0;          // txt line 21: 集合竞价数据收集标志
     int cancel_attempts_ = 0;
     int cancel_attempt_date_ = 0;
+
+    // 09:26 采样一次：竞价阶段结束后的可用仓位基准（用于 keep_position 判断）
+    std::unordered_map<std::string, int64_t> base_avail_after_auction_;
+    bool base_captured_ = false;
     
     /// @brief Phase 1: 收集集合竞价数据 (09:26:00)
     void collect_auction_data();

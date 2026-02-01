@@ -3,6 +3,7 @@
 #include "ITradingApi.h"
 #include "Order.h"
 #include "MarketData.h"
+#include <functional>
 #include <map>
 #include <mutex>
 #include <string>
@@ -30,6 +31,8 @@ namespace OrderStatus {
 /// 封装华泰证券 SECITPDK 交易 API
 class SecTradingApi : public ITradingApi {
 public:
+    using OrderEventCallback = std::function<void(const OrderResult&, int)>;
+
     SecTradingApi();
     virtual ~SecTradingApi();
 
@@ -68,6 +71,9 @@ public:
     /// @brief 获取当前是否为 dry-run 模式
     bool is_dry_run() const { return dry_run_mode_; }
 
+    /// @brief 设置订单回调（委托/成交/撤单/废单）
+    void set_order_callback(OrderEventCallback callback);
+
 private:
     // 内部订单跟踪结构
     struct Order {
@@ -78,7 +84,11 @@ private:
         std::string status;  // "submitted", "accepted", "partial_filled", "filled", "canceled", "rejected"
         int64_t filled_volume = 0;
         double filled_price = 0.0;
+        double last_fill_price = 0.0;
         std::string remark;  // ✅ 添加备注字段
+        int side = -1;       // 0=Buy, 1=Sell
+        int order_type = -1;
+        int entrust_type = -1;
     };
 
     // SEC ITPDK 回调函数（静态）
@@ -121,8 +131,12 @@ private:
     // 订单ID生成器
     int64_t order_id_counter_;
     std::mutex id_mutex_;
+
+    OrderEventCallback order_callback_;
+    std::mutex callback_mutex_;
     
     // 实例映射（用于回调）
     static std::map<std::string, SecTradingApi*> instances_; // token做key
+    static std::map<std::string, SecTradingApi*> instances_by_account_; // account_id做key
     static std::mutex instances_mutex_;
 };

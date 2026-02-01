@@ -3,12 +3,19 @@
 #include <cstdint>
 
 /// @brief 委托请求结构体（对接交易 API 的输入）
+enum class OrderSide {
+    Buy = 0,
+    Sell = 1,
+};
+
 struct OrderRequest {
     std::string account_id;
     std::string symbol;     // e.g. "000001.SZ"
+    OrderSide side = OrderSide::Sell;
     double price = 0.0;     // limit price; ignored if is_market==true
     int64_t volume = 0;     // >=0
     bool is_market = false;
+    int order_type = -1;    // <0 uses default mapping (limit/market)
     std::string remark;     // 用于撤单与回溯跟踪
 };
 
@@ -20,8 +27,14 @@ struct OrderResult {
     std::string symbol;     // 股票代码
     int64_t volume = 0;     // 委托数量
     int64_t filled_volume = 0; // 已成交数量（实时/回报更新）
+    double filled_price = 0.0; // 成交均价（回报更新）
+    double last_fill_price = 0.0; // 最新成交价（回报更新）
     double price = 0.0;     // 委托价格
     std::string remark;     // 订单备注（用于撤单与回溯跟踪）
+    int side = -1;          // 0=Buy, 1=Sell, -1=Unknown
+    int order_type = -1;    // SDK order type
+    int entrust_type = -1;  // SDK entrust type
+    bool is_local = false;  // true=本进程下单；false=外部订单/无法关联本地ID
     
     // 订单状态
     enum class Status {

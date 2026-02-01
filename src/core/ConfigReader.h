@@ -329,6 +329,48 @@ public:
         return default_val;
     }
 
+    /// @brief 获取策略 input_amt
+    double get_strategy_input_amt(double default_val = 600000.0) const {
+        size_t strategy_pos = content_.find("\"strategy\"");
+        if (strategy_pos == std::string::npos) return default_val;
+
+        size_t key_pos = content_.find("\"input_amt\"", strategy_pos);
+        if (key_pos == std::string::npos) return default_val;
+
+        size_t colon = content_.find(":", key_pos);
+        if (colon == std::string::npos) return default_val;
+
+        size_t num_start = colon + 1;
+        while (num_start < content_.length() &&
+               (content_[num_start] == ' ' || content_[num_start] == '\t' ||
+                content_[num_start] == '\n')) {
+            num_start++;
+        }
+
+        size_t num_end = num_start;
+        bool dot_seen = false;
+        if (num_end < content_.length() &&
+            (content_[num_end] == '-' || content_[num_end] == '+')) {
+            num_end++;
+        }
+        while (num_end < content_.length()) {
+            char c = content_[num_end];
+            if ((c >= '0' && c <= '9') || (c == '.' && !dot_seen)) {
+                if (c == '.') {
+                    dot_seen = true;
+                }
+                num_end++;
+                continue;
+            }
+            break;
+        }
+
+        if (num_end > num_start) {
+            return std::stod(content_.substr(num_start, num_end - num_start));
+        }
+        return default_val;
+    }
+
     /// @brief 获取策略 hold_vol
     int64_t get_strategy_hold_vol(int64_t default_val = 300) const {
         size_t strategy_pos = content_.find("\"strategy\"");
@@ -365,5 +407,98 @@ public:
             return static_cast<int64_t>(std::stoll(content_.substr(num_start, num_end - num_start)));
         }
         return default_val;
+    }
+
+    /// @brief 获取策略 code_min（可选）
+    std::string get_code_min() const {
+        size_t strategy_pos = content_.find("\"strategy\"");
+        if (strategy_pos == std::string::npos) return "";
+
+        size_t key_pos = content_.find("\"code_min\"", strategy_pos);
+        if (key_pos == std::string::npos) return "";
+
+        size_t start = content_.find("\"", key_pos + 10);
+        if (start == std::string::npos) return "";
+        size_t end = content_.find("\"", start + 1);
+        if (end == std::string::npos) return "";
+        return content_.substr(start + 1, end - start - 1);
+    }
+
+    /// @brief 获取策略 code_max（可选）
+    std::string get_code_max() const {
+        size_t strategy_pos = content_.find("\"strategy\"");
+        if (strategy_pos == std::string::npos) return "";
+
+        size_t key_pos = content_.find("\"code_max\"", strategy_pos);
+        if (key_pos == std::string::npos) return "";
+
+        size_t start = content_.find("\"", key_pos + 10);
+        if (start == std::string::npos) return "";
+        size_t end = content_.find("\"", start + 1);
+        if (end == std::string::npos) return "";
+        return content_.substr(start + 1, end - start - 1);
+    }
+
+    /// @brief 模块开关：sell
+    int get_module_sell(int default_val = 0) const {
+        size_t modules_pos = content_.find("\"modules\"");
+        if (modules_pos == std::string::npos) return default_val;
+        size_t key_pos = content_.find("\"sell\"", modules_pos);
+        if (key_pos == std::string::npos) return default_val;
+        return extract_int("sell");
+    }
+
+    /// @brief 模块开关：base_cancel
+    int get_module_base_cancel(int default_val = 0) const {
+        size_t modules_pos = content_.find("\"modules\"");
+        if (modules_pos == std::string::npos) return default_val;
+        size_t key_pos = content_.find("\"base_cancel\"", modules_pos);
+        if (key_pos == std::string::npos) return default_val;
+        return extract_int("base_cancel");
+    }
+
+    /// @brief 模块开关：usage_example
+    int get_module_usage_example(int default_val = 0) const {
+        size_t modules_pos = content_.find("\"modules\"");
+        if (modules_pos == std::string::npos) return default_val;
+        size_t key_pos = content_.find("\"usage_example\"", modules_pos);
+        if (key_pos == std::string::npos) return default_val;
+        return extract_int("usage_example");
+    }
+
+    /// @brief modules_config.usage_example.csv_path（目录路径）
+    std::string get_usage_example_csv_dir() const {
+        size_t root_pos = content_.find("\"modules_config\"");
+        if (root_pos == std::string::npos) return "";
+
+        size_t usage_pos = content_.find("\"usage_example\"", root_pos);
+        if (usage_pos == std::string::npos) return "";
+
+        size_t key_pos = content_.find("\"csv_path\"", usage_pos);
+        if (key_pos == std::string::npos) return "";
+
+        size_t start = content_.find("\"", key_pos + 10);
+        if (start == std::string::npos) return "";
+        size_t end = content_.find("\"", start + 1);
+        if (end == std::string::npos) return "";
+        return content_.substr(start + 1, end - start - 1);
+    }
+
+    /// @brief modules_config.base_cancel.order_dir
+    std::string get_base_cancel_order_dir() const {
+        size_t root_pos = content_.find("\"modules_config\"");
+        if (root_pos == std::string::npos) return "";
+
+        size_t base_pos = content_.find("\"base_cancel\"", root_pos);
+        if (base_pos == std::string::npos) return "";
+
+        size_t key_pos = content_.find("\"order_dir\"", base_pos);
+        if (key_pos == std::string::npos) return "";
+
+        size_t start = content_.find("\"", key_pos + 11);
+        if (start == std::string::npos) return "";
+        size_t end = content_.find("\"", start + 1);
+        if (end == std::string::npos) return "";
+        return content_.substr(start + 1, end - start - 1);
     }
 };

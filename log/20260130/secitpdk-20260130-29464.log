@@ -1,0 +1,7 @@
+[2026-01-30 14:57:55.088297] [ITPDK] [info] SECITPDK VER:5252
+[2026-01-30 14:57:55.088325] [ITPDK] [info] CommInit success. StructPushMsg:true ConfirmMsgFunc:19301 ReportMsgFunc:19302 Warmup:0
+[2026-01-30 14:57:55.096314] [ITPDK] [info] fixcomm pool auto reconnect started.
+[2026-01-30 14:57:55.096565] [ITPDK] [info] SECITPDK_SetWriteLog bLog:true
+[2026-01-30 14:57:55.096567] [ITPDK] [info] SECITPDK_SetFixWriteLog bLog:true
+[2026-01-30 14:57:55.096569] [ITPDK] [info] SECITPDK_SetWTFS wtfs:32 bret:true
+[2026-01-30 14:57:55.097052] [ITPDK] [info] SECITPDK_TradeLogin lpKeyName:A5_RS khh:010000227342

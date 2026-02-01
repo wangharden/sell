@@ -112,6 +112,7 @@ static std::string read_config_snode(const std::string& path,
 
 // 静态成员初始化
 std::map<std::string, SecTradingApi*> SecTradingApi::instances_;
+std::map<std::string, SecTradingApi*> SecTradingApi::instances_by_account_;
 std::mutex SecTradingApi::instances_mutex_;
 
 // 注意：以下常量已在 SDK 的 itpdk_dict.h 中定义，这里仅作注释说明
@@ -130,6 +131,11 @@ SecTradingApi::SecTradingApi()
 
 SecTradingApi::~SecTradingApi() {
     disconnect();
+}
+
+void SecTradingApi::set_order_callback(OrderEventCallback callback) {
+    std::lock_guard<std::mutex> lock(callback_mutex_);
+    order_callback_ = std::move(callback);
 }
 
 bool SecTradingApi::connect(const std::string& host, int port,
@@ -206,6 +212,7 @@ bool SecTradingApi::connect(const std::string& host, int port,
     {
         std::lock_guard<std::mutex> lock(instances_mutex_);
         instances_[std::to_string(nRet)] = this;
+        instances_by_account_[account_id_] = this;
         token_ = std::to_string(nRet); // 保存token
     }
     
@@ -229,6 +236,10 @@ void SecTradingApi::disconnect() {
     {
         std::lock_guard<std::mutex> lock(instances_mutex_);
         instances_.erase(token_);  //  修正：使用 token_ 作为key
+        auto it_acc = instances_by_account_.find(account_id_);
+        if (it_acc != instances_by_account_.end() && it_acc->second == this) {
+            instances_by_account_.erase(it_acc);
+        }
     }
     
     std::cout << "[SEC] Disconnecting..." << std::endl;
@@ -320,16 +331,13 @@ std::string SecTradingApi::place_order(const OrderRequest& req) {
         }
     }
     
-    // ===== 正常模式：真实卖出 =====
-    // 交易类别：卖出
-    int trade_type = JYLB_SALE;
+    // ===== 正常模式：真实下单 =====
+    int trade_type = (req.side == OrderSide::Buy) ? JYLB_BUY : JYLB_SALE;
+    int order_type = (req.order_type >= 0) ? req.order_type : (req.is_market ? 1 : 0);
     
-    // 订单类型：0-限价单
-    int order_type = req.is_market ? 1 : 0;
-    
-    std::cout << "[SEC] Placing order: " << stock_code 
-              << " " << market << " " << req.volume 
-              << "@" << req.price << std::endl;
+    std::cout << "[SEC] Placing order: " << stock_code << " " << market
+              << " " << ((trade_type == JYLB_BUY) ? "BUY" : "SELL")
+              << " " << req.volume << "@" << req.price << std::endl;
     
     // 生成本地订单ID
     std::string local_id = generate_order_id();
@@ -366,6 +374,10 @@ std::string SecTradingApi::place_order(const OrderRequest& req) {
         order.filled_volume = 0;
         order.filled_price = 0.0;
         order.remark = req.remark;  // ✅ 添加备注字段
+        order.last_fill_price = 0.0;
+        order.side = (trade_type == JYLB_BUY) ? 0 : 1;
+        order.order_type = order_type;
+        order.entrust_type = trade_type;
         sysid_to_local_[sys_id] = local_id;
     }
     return local_id;
@@ -590,6 +602,14 @@ std::vector<OrderResult> SecTradingApi::query_orders() {
         order_result.volume = api_order.OrderQty;
         order_result.filled_volume = api_order.MatchQty;
         order_result.price = api_order.OrderPrice;
+        order_result.is_local = false;
+        order_result.entrust_type = static_cast<int>(api_order.EntrustType);
+        order_result.order_type = api_order.OrderType;
+        if (api_order.EntrustType == JYLB_BUY) {
+            order_result.side = 0;
+        } else if (api_order.EntrustType == JYLB_SALE) {
+            order_result.side = 1;
+        }
         
         // 订单状态转换 (OrderStatus字段)
         // 参考 itpdk_dict.h 中的定义
@@ -619,6 +639,12 @@ std::vector<OrderResult> SecTradingApi::query_orders() {
                 auto ord_it = orders_.find(local_id);
                 if (ord_it != orders_.end()) {
                     order_result.remark = ord_it->second.remark;
+                    order_result.filled_price = ord_it->second.filled_price;
+                    order_result.last_fill_price = ord_it->second.last_fill_price;
+                    order_result.side = ord_it->second.side;
+                    order_result.order_type = ord_it->second.order_type;
+                    order_result.entrust_type = ord_it->second.entrust_type;
+                    order_result.is_local = true;
                 }
             } else {
                 order_result.remark = "";
@@ -671,7 +697,14 @@ OrderResult SecTradingApi::query_order(const std::string& order_id) {
         result.symbol = it->second.symbol;
         result.volume = it->second.volume;
         result.filled_volume = it->second.filled_volume;
+        result.filled_price = it->second.filled_price;
+        result.last_fill_price = it->second.last_fill_price;
         result.price = it->second.price;
+        result.remark = it->second.remark;
+        result.side = it->second.side;
+        result.order_type = it->second.order_type;
+        result.entrust_type = it->second.entrust_type;
+        result.is_local = true;
         
         // 转换字符串状态到枚举
         const std::string& status_str = it->second.status;
@@ -759,8 +792,8 @@ void SecTradingApi::OnOrderAsyncCallback(const char* pTime, stStructOrderFuncMsg
     SecTradingApi* instance = nullptr;
     {
         std::lock_guard<std::mutex> lock(instances_mutex_);
-        auto it = instances_.find(account_id);
-        if (it != instances_.end()) {
+        auto it = instances_by_account_.find(account_id);
+        if (it != instances_by_account_.end()) {
             instance = it->second;
         }
     }
@@ -771,36 +804,139 @@ void SecTradingApi::OnOrderAsyncCallback(const char* pTime, stStructOrderFuncMsg
 }
 
 void SecTradingApi::handle_struct_msg(const char* pTime, stStructMsg& stMsg, int nType) {
+    auto to_status = [](const std::string& status_str) -> OrderResult::Status {
+        if (status_str == OrderStatus::SUBMITTED || status_str == OrderStatus::ACCEPTED) {
+            return OrderResult::Status::SUBMITTED;
+        }
+        if (status_str == OrderStatus::PARTIAL) {
+            return OrderResult::Status::PARTIAL;
+        }
+        if (status_str == OrderStatus::FILLED) {
+            return OrderResult::Status::FILLED;
+        }
+        if (status_str == OrderStatus::CANCELLED || status_str == OrderStatus::CANCELING) {
+            return OrderResult::Status::CANCELLED;
+        }
+        if (status_str == OrderStatus::REJECTED) {
+            return OrderResult::Status::REJECTED;
+        }
+        return OrderResult::Status::UNKNOWN;
+    };
+
     int64_t sys_id = stMsg.OrderId;
     std::string symbol = stMsg.StockCode;
-    std::lock_guard<std::mutex> lock(orders_mutex_);
-    auto it_local = sysid_to_local_.find(sys_id);
-    if (it_local == sysid_to_local_.end()) return;
-    auto it = orders_.find(it_local->second);
-    if (it == orders_.end()) return;
-    Order& order = it->second;
-    
-    if (nType == NOTIFY_PUSH_ORDER) {
-        std::cout << "[SEC] Order confirmed: " << sys_id << " (" << symbol << ")" << std::endl;
-        order.status = OrderStatus::ACCEPTED;
-    } else if (nType == NOTIFY_PUSH_MATCH) {
-        std::cout << "[SEC] Order matched: " << sys_id << " (" << symbol << ")"
-                  << " qty=" << stMsg.MatchQty << " price=" << stMsg.MatchPrice << std::endl;
-        // 累计加权平均价
-        double total_value = order.filled_price * order.filled_volume + stMsg.MatchPrice * stMsg.MatchQty;
-        order.filled_volume += stMsg.MatchQty;
-        order.filled_price = order.filled_volume > 0 ? total_value / order.filled_volume : 0.0;
-        if (order.filled_volume >= order.volume) {
-            order.status = OrderStatus::FILLED;
-        } else {
-            order.status = OrderStatus::PARTIAL;
+
+    OrderResult snapshot;
+    bool has_snapshot = false;
+    bool is_local = false;
+    {
+        std::lock_guard<std::mutex> lock(orders_mutex_);
+        auto it_local = sysid_to_local_.find(sys_id);
+        if (it_local != sysid_to_local_.end()) {
+            auto it = orders_.find(it_local->second);
+            if (it == orders_.end()) return;
+            Order& order = it->second;
+
+            if (nType == NOTIFY_PUSH_ORDER) {
+                std::cout << "[SEC] Order confirmed: " << sys_id << " (" << symbol << ")" << std::endl;
+                order.status = OrderStatus::ACCEPTED;
+            } else if (nType == NOTIFY_PUSH_MATCH) {
+                std::cout << "[SEC] Order matched: " << sys_id << " (" << symbol << ")"
+                          << " qty=" << stMsg.MatchQty << " price=" << stMsg.MatchPrice << std::endl;
+
+                double total_value = order.filled_price * order.filled_volume +
+                                     stMsg.MatchPrice * stMsg.MatchQty;
+                order.filled_volume += stMsg.MatchQty;
+                order.filled_price = order.filled_volume > 0 ? total_value / order.filled_volume : 0.0;
+                order.last_fill_price = stMsg.MatchPrice;
+
+                if (order.filled_volume >= order.volume) {
+                    order.status = OrderStatus::FILLED;
+                } else {
+                    order.status = OrderStatus::PARTIAL;
+                }
+            } else if (nType == NOTIFY_PUSH_WITHDRAW) {
+                std::cout << "[SEC] Order canceled: " << sys_id << " (" << symbol << ")" << std::endl;
+                order.status = OrderStatus::CANCELLED;
+            } else if (nType == NOTIFY_PUSH_INVALID) {
+                std::cout << "[SEC] Order rejected: " << sys_id << " (" << symbol << ")" << std::endl;
+                order.status = OrderStatus::REJECTED;
+            }
+
+            snapshot.success = true;
+            snapshot.order_id = order.order_id;
+            snapshot.symbol = order.symbol;
+            snapshot.volume = order.volume;
+            snapshot.filled_volume = order.filled_volume;
+            snapshot.filled_price = order.filled_price;
+            snapshot.last_fill_price = order.last_fill_price;
+            snapshot.price = order.price;
+            snapshot.remark = order.remark;
+            snapshot.status = to_status(order.status);
+            snapshot.side = order.side;
+            snapshot.order_type = order.order_type;
+            snapshot.entrust_type = order.entrust_type;
+            snapshot.is_local = true;
+
+            has_snapshot = true;
+            is_local = true;
         }
-    } else if (nType == NOTIFY_PUSH_WITHDRAW) {
-        std::cout << "[SEC] Order canceled: " << sys_id << " (" << symbol << ")" << std::endl;
-        order.status = OrderStatus::CANCELLED;
-    } else if (nType == NOTIFY_PUSH_INVALID) {
-        std::cout << "[SEC] Order rejected: " << sys_id << " (" << symbol << ")" << std::endl;
-        order.status = OrderStatus::REJECTED;
+    }
+
+    if (!is_local) {
+        snapshot.success = true;
+        snapshot.order_id = std::to_string(sys_id);
+
+        std::string market(stMsg.Market);
+        if (!market.empty()) {
+            snapshot.symbol = std::string(stMsg.StockCode) + "." + market;
+        } else {
+            snapshot.symbol = std::string(stMsg.StockCode);
+        }
+
+        snapshot.volume = stMsg.OrderQty;
+        snapshot.filled_volume = stMsg.TotalMatchQty;
+        snapshot.filled_price = (stMsg.TotalMatchQty > 0)
+                                    ? (stMsg.TotalMatchAmt / stMsg.TotalMatchQty)
+                                    : 0.0;
+        snapshot.last_fill_price = stMsg.MatchPrice;
+        snapshot.price = stMsg.OrderPrice;
+        snapshot.remark = "";
+
+        if (nType == NOTIFY_PUSH_ORDER) {
+            snapshot.status = OrderResult::Status::SUBMITTED;
+        } else if (nType == NOTIFY_PUSH_MATCH) {
+            snapshot.status = (stMsg.TotalMatchQty >= stMsg.OrderQty) ? OrderResult::Status::FILLED
+                                                                      : OrderResult::Status::PARTIAL;
+        } else if (nType == NOTIFY_PUSH_WITHDRAW) {
+            snapshot.status = OrderResult::Status::CANCELLED;
+        } else if (nType == NOTIFY_PUSH_INVALID) {
+            snapshot.status = OrderResult::Status::REJECTED;
+        } else {
+            snapshot.status = OrderResult::Status::UNKNOWN;
+        }
+
+        snapshot.entrust_type = static_cast<int>(stMsg.EntrustType);
+        snapshot.order_type = stMsg.OrderType;
+        if (stMsg.EntrustType == JYLB_BUY) {
+            snapshot.side = 0;
+        } else if (stMsg.EntrustType == JYLB_SALE) {
+            snapshot.side = 1;
+        } else {
+            snapshot.side = -1;
+        }
+        snapshot.is_local = false;
+
+        has_snapshot = true;
+    }
+
+    OrderEventCallback callback;
+    {
+        std::lock_guard<std::mutex> lock(callback_mutex_);
+        callback = order_callback_;
+    }
+    if (callback && has_snapshot) {
+        callback(snapshot, nType);
     }
 }
 
