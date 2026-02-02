@@ -37,22 +37,6 @@ include_directories(
 # ==================== 库文件路径 ====================
 link_directories("${SDK_LIB_DIR}")
 
-# ==================== 源文件 ====================
-set(USAGE_EXAMPLE_SOURCES
-    examples/usage_example.cpp
-    src/adapters/TdfMarketDataApi.cpp
-    src/adapters/SecTradingApi.cpp
-    src/strategies/IntradaySellStrategy.cpp
-    src/strategies/AuctionSellStrategy.cpp
-    src/strategies/CloseSellStrategy.cpp
-    src/core/CsvConfig.cpp
-    src/core/SellStrategy.cpp
-    src/core/util.cpp
-)
-
-# ==================== 编译可执行文件 ====================
-add_executable(usage_example ${USAGE_EXAMPLE_SOURCES})
-
 # ==================== Multi-module runner ====================
 set(RUNNER_SOURCES
     main.cpp
@@ -126,30 +110,17 @@ endif()
 
 # ==================== 链接库 ====================
 if(WIN32)
-    target_link_libraries(usage_example
-        TDFAPI30
-        secitpdk
-        ws2_32
-    )
     target_link_libraries(main
         TDFAPI30
         secitpdk
         ws2_32
     )
     
-    set_target_properties(usage_example PROPERTIES
-        VS_DEBUGGER_ENVIRONMENT "PATH=${SDK_LIB_DIR};$ENV{PATH}"
-    )
     set_target_properties(main PROPERTIES
         VS_DEBUGGER_ENVIRONMENT "PATH=${SDK_LIB_DIR};$ENV{PATH}"
     )
 else()
     # Linux 平台
-    target_link_libraries(usage_example
-        TDFAPI30
-        secitpdk
-        pthread
-    )
     target_link_libraries(main
         TDFAPI30
         secitpdk
@@ -157,11 +128,6 @@ else()
     )
     
     # RPATH 配置（自动查找 .so 文件，无需复制）
-    set_target_properties(usage_example PROPERTIES
-        BUILD_RPATH "${SDK_LIB_DIR}"
-        INSTALL_RPATH "$ORIGIN:$ORIGIN/../lib/linux:${SDK_LIB_DIR}"
-        BUILD_RPATH_USE_ORIGIN ON
-    )
     set_target_properties(main PROPERTIES
         BUILD_RPATH "${SDK_LIB_DIR}"
         INSTALL_RPATH "$ORIGIN:$ORIGIN/../lib/linux:${SDK_LIB_DIR}"

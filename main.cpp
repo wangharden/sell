@@ -39,12 +39,16 @@
 #ifdef _WIN32
 #include <direct.h>
 #include <windows.h>
+#ifndef MKDIR
 #define MKDIR(dir) _mkdir(dir)
+#endif
 #else
 #include <dirent.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#ifndef MKDIR
 #define MKDIR(dir) mkdir(dir, 0755)
+#endif
 #endif
 
 namespace {
@@ -523,7 +527,9 @@ int main(int argc, char** argv) {
 
     struct OrderEvent {
         OrderResult result;
-        int type = 0;
+        int type;
+        OrderEvent() : result(), type(0) {}
+        OrderEvent(const OrderResult& r, int t) : result(r), type(t) {}
     };
     std::mutex ev_mutex;
     std::condition_variable ev_cv;

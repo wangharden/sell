@@ -72,9 +72,10 @@ private:
 #else
         localtime_r(&time_t, &tm_buf);
 #endif
+        char buf[32];
+        std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &tm_buf);
         std::stringstream ss;
-        ss << std::put_time(&tm_buf, "%Y-%m-%d %H:%M:%S");
-        ss << '.' << std::setfill('0') << std::setw(3) << ms.count();
+        ss << buf << '.' << std::setfill('0') << std::setw(3) << ms.count();
         return ss.str();
     }
 
@@ -88,9 +89,9 @@ private:
 #else
         localtime_r(&time_t, &tm_buf);
 #endif
-        std::stringstream ss;
-        ss << std::put_time(&tm_buf, "%Y%m%d");
-        return ss.str();
+        char buf[16];
+        std::strftime(buf, sizeof(buf), "%Y%m%d", &tm_buf);
+        return std::string(buf);
     }
 
     // 日志级别转字符串
