@@ -4,6 +4,7 @@
 #include <vector>
 #include <map>
 #include <random>
+#include <unordered_map>
 
 /// @brief 收盘卖出策略（对应 qh2h收盘卖出.txt）
 /// 时间窗口：14:53:00-14:56:45
@@ -67,7 +68,9 @@ private:
     int phase2_cancel_done_ = 0;
     int phase3_test_sell_done_ = 0;
     int phase4_bulk_sell_done_ = 0;
-    
+    // phase1 启动时记录的可用持仓基数（用于计算70%限制）
+    std::unordered_map<std::string, int64_t> phase1_base_available_;
+    bool phase1_base_recorded_ = false;  // 是否已记录基数
     // 随机数生成器
     std::mt19937 rng_;
     std::uniform_real_distribution<double> uniform_dist_;

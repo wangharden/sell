@@ -72,25 +72,26 @@ void CloseSellStrategy::on_timer() {
 void CloseSellStrategy::phase1_random_sell() {
     // txt line 47-143: 随机卖出阶段
     // 每3秒触发，15%概率卖出，中间价
-    
-    auto positions = api_->query_positions();
-    // 用当前持仓校正实际已卖数量，避免累计委托量虚高
-    for (const auto& pos : positions) {
-        auto it = total_volumes_.find(pos.symbol);
-        if (it != total_volumes_.end()) {
-            int64_t init_total = it->second;
-            int64_t actual_sold = std::max<int64_t>(0, init_total - pos.total);
-            sold_volumes_[pos.symbol] = actual_sold;
+    if(!phase1_base_recorded_){
+        auto positions = api_->query_positions();
+        for(const auto& pos:positions){
+            if(pos.available>0){
+                phase1_base_available_[pos.symbol]=pos.available;
+            }
         }
+        phase1_base_recorded_=true;
+        std::cout << "[Phase1] Base available recorded for " 
+                  << phase1_base_available_.size() << " symbols" << std::endl;
     }
+    auto positions = api_->query_positions();
     
     for (const auto& pos : positions) {
         const std::string& symbol = pos.symbol;
         
         // 只处理记录中的股票（持仓>hold_vol）
-        if (total_volumes_.find(symbol) == total_volumes_.end()) {
-            continue;
-        }
+        //if (total_volumes_.find(symbol) == total_volumes_.end()) {
+           // continue;
+        //}
         
         // txt line 50-52: 15%概率触发
         double p = uniform_dist_(rng_);
@@ -99,7 +100,13 @@ void CloseSellStrategy::phase1_random_sell() {
         }
         
         // txt line 55-57: 检查70%卖出限制
-        if (sold_volumes_[symbol] > total_volumes_[symbol] * 0.7) {
+        // 当前可用 < 基准可用的30%，说明已卖超70%，跳过
+        auto base_it = phase1_base_available_.find(symbol);
+        if (base_it == phase1_base_available_.end()) {
+            continue;
+        }
+        int64_t base_available = base_it->second;
+        if (pos.available < base_available * 0.3) {
             continue;
         }
         
@@ -115,12 +122,11 @@ void CloseSellStrategy::phase1_random_sell() {
             continue;
         }
         
-        int64_t remaining = std::min(available_vol, holding_vol) - hold_vol_ - sold_volumes_[symbol];
-        if (remaining <= 0) {
+        // 可卖数量 = 可用 - 底仓
+        int64_t vol = available_vol - hold_vol_;
+        if (vol <= 0) {
             continue;
         }
-        
-        int64_t vol = std::min<int64_t>(available_vol - hold_vol_, remaining);
         
         // 获取行情 - txt line 68-84
         MarketSnapshot snap = api_->get_snapshot(symbol);
@@ -281,23 +287,9 @@ void CloseSellStrategy::phase3_test_sell() {
     std::cout << "=== Phase 3: Test sell (100 shares each) ===" << std::endl;
     
     auto positions = api_->query_positions();
-    // 校正已卖数量
-    for (const auto& pos : positions) {
-        auto it = total_volumes_.find(pos.symbol);
-        if (it != total_volumes_.end()) {
-            int64_t init_total = it->second;
-            int64_t actual_sold = std::max<int64_t>(0, init_total - pos.total);
-            sold_volumes_[pos.symbol] = actual_sold;
-        }
-    }
     
     for (const auto& pos : positions) {
         const std::string& symbol = pos.symbol;
-        
-        // 只处理记录中的股票
-        if (total_volumes_.find(symbol) == total_volumes_.end()) {
-            continue;
-        }
         
         // txt line 165-167: 检查可用仓位
         if (pos.available <= 0) {
@@ -315,9 +307,8 @@ void CloseSellStrategy::phase3_test_sell() {
             continue;
         }
         
-        // 固定卖出100股
-        int64_t remaining = std::min(available_vol, holding_vol) - hold_vol_ - sold_volumes_[symbol];
-        if (remaining < 100) {
+        // 固定卖出100股，检查可卖空间
+        if (available_vol - hold_vol_ < 100) {
             continue;
         }
         
@@ -381,23 +372,9 @@ void CloseSellStrategy::phase4_bulk_sell() {
     std::cout << "=== Phase 4: Bulk sell (remaining positions) ===" << std::endl;
     
     auto positions = api_->query_positions();
-    // 校正已卖数量
-    for (const auto& pos : positions) {
-        auto it = total_volumes_.find(pos.symbol);
-        if (it != total_volumes_.end()) {
-            int64_t init_total = it->second;
-            int64_t actual_sold = std::max<int64_t>(0, init_total - pos.total);
-            sold_volumes_[pos.symbol] = actual_sold;
-        }
-    }
     
     for (const auto& pos : positions) {
         const std::string& symbol = pos.symbol;
-        
-        // 只处理记录中的股票
-        if (total_volumes_.find(symbol) == total_volumes_.end()) {
-            continue;
-        }
         
         // txt line 201-202: 检查可用仓位
         if (pos.available <= 0) {

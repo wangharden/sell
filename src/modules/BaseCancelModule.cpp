@@ -19,6 +19,7 @@
 #include <windows.h>
 #else
 #include <dirent.h>
+#include <sys/stat.h>
 #endif
 
 namespace {
@@ -55,8 +56,10 @@ bool BaseCancelModule::init(AppContext& ctx) {
     logger_->info("[INIT] order_dir=" + order_dir_);
 
     buy_symbols_ = load_buy_list_symbols(order_dir_, &buy_list_path_);
-    if (buy_symbols_.empty()) {
-        logger_->warn("[INIT] no buy list symbols loaded");
+    if (buy_list_path_.empty()) {
+        logger_->warn("[INIT] no buy list csv found in " + order_dir_);
+    } else if (buy_symbols_.empty()) {
+        logger_->warn("[INIT] buy list csv loaded but 0 symbols: " + buy_list_path_);
     } else {
         logger_->info_f("[INIT] loaded %zu buy symbols from %s",
                         buy_symbols_.size(), buy_list_path_.c_str());
@@ -308,43 +311,123 @@ std::vector<std::string> BaseCancelModule::list_files(const std::string& dir) {
 }
 
 int BaseCancelModule::parse_ymd(const std::string& token) {
-    if (token.size() != 8) {
-        return 0;
+    // Support both YYYYMMDD and YYYY-MM-DD (legacy naming used in sell2).
+    if (token.size() == 8) {
+        for (char c : token) {
+            if (!std::isdigit(static_cast<unsigned char>(c))) {
+                return 0;
+            }
+        }
+        return std::atoi(token.c_str());
     }
-    for (char c : token) {
-        if (!std::isdigit(static_cast<unsigned char>(c))) {
+
+    if (token.size() == 10 && token[4] == '-' && token[7] == '-') {
+        for (size_t i = 0; i < token.size(); ++i) {
+            if (i == 4 || i == 7) {
+                continue;
+            }
+            if (!std::isdigit(static_cast<unsigned char>(token[i]))) {
+                return 0;
+            }
+        }
+        int year = std::atoi(token.substr(0, 4).c_str());
+        int month = std::atoi(token.substr(5, 2).c_str());
+        int day = std::atoi(token.substr(8, 2).c_str());
+        if (year <= 0 || month <= 0 || day <= 0) {
             return 0;
         }
+        return year * 10000 + month * 100 + day;
     }
-    return std::atoi(token.c_str());
+
+    return 0;
 }
 
 std::string BaseCancelModule::find_latest_list_file(const std::string& dir) {
-    int latest_date = 0;
-    std::string latest_file;
-    auto files = list_files(dir);
-    for (const auto& name : files) {
-        size_t underscore = name.find('_');
-        if (underscore == std::string::npos) {
-            continue;
-        }
-        std::string prefix = name.substr(0, underscore);
-        int date = parse_ymd(prefix);
-        if (date == 0) {
-            continue;
-        }
-        if (date > latest_date) {
-            latest_date = date;
-            latest_file = name;
-        }
-    }
-    if (latest_file.empty()) {
+    // Prefer selecting the latest list csv by file modification time, instead of relying on date parsing
+    // from the filename. This avoids missing formats like "2026-02-02_list.csv" and matches ops behavior.
+#ifdef _WIN32
+    WIN32_FIND_DATAA find_data;
+    std::string search_path = dir + "\\*.csv";
+    HANDLE hFind = FindFirstFileA(search_path.c_str(), &find_data);
+    if (hFind == INVALID_HANDLE_VALUE) {
         return "";
     }
-#ifdef _WIN32
-    return dir + "\\" + latest_file;
+
+    FILETIME best_list_time = {0, 0};
+    FILETIME best_any_time = {0, 0};
+    std::string best_list_name;
+    std::string best_any_name;
+
+    do {
+        if (find_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+            continue;
+        }
+        std::string name = find_data.cFileName;
+        const bool is_list = (name.find("_list") != std::string::npos);
+
+        if (is_list) {
+            if (best_list_name.empty() || CompareFileTime(&find_data.ftLastWriteTime, &best_list_time) > 0) {
+                best_list_time = find_data.ftLastWriteTime;
+                best_list_name = std::move(name);
+            }
+        }
+
+        if (best_any_name.empty() || CompareFileTime(&find_data.ftLastWriteTime, &best_any_time) > 0) {
+            best_any_time = find_data.ftLastWriteTime;
+            best_any_name = std::move(name);
+        }
+    } while (FindNextFileA(hFind, &find_data) != 0);
+
+    FindClose(hFind);
+
+    const std::string& picked = best_list_name.empty() ? best_any_name : best_list_name;
+    if (picked.empty()) {
+        return "";
+    }
+    return dir + "\\" + picked;
 #else
-    return dir + "/" + latest_file;
+    DIR* dp = opendir(dir.c_str());
+    if (!dp) {
+        return "";
+    }
+
+    std::string best_list_name;
+    std::string best_any_name;
+    time_t best_list_time = 0;
+    time_t best_any_time = 0;
+
+    while (auto* ent = readdir(dp)) {
+        if (ent->d_type == DT_DIR) {
+            continue;
+        }
+        std::string name = ent->d_name;
+        if (name.size() < 4 || name.substr(name.size() - 4) != ".csv") {
+            continue;
+        }
+
+        std::string full_path = dir + "/" + name;
+        struct stat file_stat;
+        if (stat(full_path.c_str(), &file_stat) != 0) {
+            continue;
+        }
+
+        const bool is_list = (name.find("_list") != std::string::npos);
+        if (is_list && (best_list_name.empty() || file_stat.st_mtime > best_list_time)) {
+            best_list_time = file_stat.st_mtime;
+            best_list_name = name;
+        }
+        if (best_any_name.empty() || file_stat.st_mtime > best_any_time) {
+            best_any_time = file_stat.st_mtime;
+            best_any_name = name;
+        }
+    }
+    closedir(dp);
+
+    const std::string& picked = best_list_name.empty() ? best_any_name : best_list_name;
+    if (picked.empty()) {
+        return "";
+    }
+    return dir + "/" + picked;
 #endif
 }
 
@@ -355,7 +438,7 @@ std::vector<std::string> BaseCancelModule::load_buy_list_symbols(const std::stri
         *out_path = file_path;
     }
     if (file_path.empty()) {
-        logger_->error("[BUY] no list file found in " + dir);
+        logger_->error("[BUY] no list csv found in " + dir);
         return symbols;
     }
 

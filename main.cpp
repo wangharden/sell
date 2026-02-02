@@ -201,6 +201,90 @@ std::string find_latest_csv_in_dir(const std::string& directory) {
 #endif
 }
 
+// Find latest list csv by last write time in a directory. Prefer "*_list*.csv"; fallback to any "*.csv".
+std::string find_latest_list_csv_in_dir(const std::string& directory) {
+#ifdef _WIN32
+    WIN32_FIND_DATAA find_data;
+    std::string search_path = directory + "\\*.csv";
+    HANDLE hFind = FindFirstFileA(search_path.c_str(), &find_data);
+    if (hFind == INVALID_HANDLE_VALUE) {
+        return "";
+    }
+
+    FILETIME best_list_time = {0, 0};
+    FILETIME best_any_time = {0, 0};
+    std::string best_list_name;
+    std::string best_any_name;
+
+    do {
+        if (find_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+            continue;
+        }
+        std::string filename = find_data.cFileName;
+        const bool is_list = (filename.find("_list") != std::string::npos);
+
+        if (is_list) {
+            if (best_list_name.empty() || CompareFileTime(&find_data.ftLastWriteTime, &best_list_time) > 0) {
+                best_list_time = find_data.ftLastWriteTime;
+                best_list_name = filename;
+            }
+        }
+
+        if (best_any_name.empty() || CompareFileTime(&find_data.ftLastWriteTime, &best_any_time) > 0) {
+            best_any_time = find_data.ftLastWriteTime;
+            best_any_name = filename;
+        }
+    } while (FindNextFileA(hFind, &find_data) != 0);
+
+    FindClose(hFind);
+
+    const std::string& picked = best_list_name.empty() ? best_any_name : best_list_name;
+    if (picked.empty()) {
+        return "";
+    }
+    return directory + "\\" + picked;
+#else
+    DIR* dir = opendir(directory.c_str());
+    if (!dir) {
+        return "";
+    }
+
+    std::string best_list_name;
+    std::string best_any_name;
+    time_t best_list_time = 0;
+    time_t best_any_time = 0;
+
+    while (auto* entry = readdir(dir)) {
+        std::string filename = entry->d_name;
+        if (filename.size() < 4 || filename.substr(filename.size() - 4) != ".csv") {
+            continue;
+        }
+        std::string full_path = directory + "/" + filename;
+        struct stat file_stat;
+        if (stat(full_path.c_str(), &file_stat) != 0) {
+            continue;
+        }
+
+        const bool is_list = (filename.find("_list") != std::string::npos);
+        if (is_list && (best_list_name.empty() || file_stat.st_mtime > best_list_time)) {
+            best_list_time = file_stat.st_mtime;
+            best_list_name = filename;
+        }
+        if (best_any_name.empty() || file_stat.st_mtime > best_any_time) {
+            best_any_time = file_stat.st_mtime;
+            best_any_name = filename;
+        }
+    }
+    closedir(dir);
+
+    const std::string& picked = best_list_name.empty() ? best_any_name : best_list_name;
+    if (picked.empty()) {
+        return "";
+    }
+    return directory + "/" + picked;
+#endif
+}
+
 std::vector<std::string> load_symbols_from_csv(const std::string& csv_path) {
     std::vector<std::string> symbols;
     std::ifstream file(csv_path.c_str());
@@ -251,77 +335,13 @@ std::vector<std::string> load_buy_list_symbols(const std::string& dir,
                                                std::string* out_path) {
     std::vector<std::string> symbols;
 
-    auto list_files = [&](const std::string& d) -> std::vector<std::string> {
-        std::vector<std::string> files;
-#ifdef _WIN32
-        std::string pattern = d + "\\*";
-        WIN32_FIND_DATAA data;
-        HANDLE h = FindFirstFileA(pattern.c_str(), &data);
-        if (h == INVALID_HANDLE_VALUE) {
-            return files;
-        }
-        do {
-            if (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
-                continue;
-            }
-            files.push_back(data.cFileName);
-        } while (FindNextFileA(h, &data) != 0);
-        FindClose(h);
-#else
-        DIR* dp = opendir(d.c_str());
-        if (!dp) {
-            return files;
-        }
-        while (auto* ent = readdir(dp)) {
-            if (ent->d_type == DT_DIR) {
-                continue;
-            }
-            files.push_back(ent->d_name);
-        }
-        closedir(dp);
-#endif
-        return files;
-    };
-
-    auto parse_ymd = [](const std::string& token) -> int {
-        if (token.size() != 8) {
-            return 0;
-        }
-        for (char c : token) {
-            if (!std::isdigit(static_cast<unsigned char>(c))) {
-                return 0;
-            }
-        }
-        return std::atoi(token.c_str());
-    };
-
-    int latest_date = 0;
-    std::string latest_file;
-    for (const auto& name : list_files(dir)) {
-        size_t underscore = name.find('_');
-        if (underscore == std::string::npos) {
-            continue;
-        }
-        int date = parse_ymd(name.substr(0, underscore));
-        if (date > latest_date) {
-            latest_date = date;
-            latest_file = name;
-        }
-    }
-    if (latest_file.empty()) {
-        if (out_path) {
-            *out_path = "";
-        }
-        return symbols;
-    }
-
-#ifdef _WIN32
-    std::string path = dir + "\\" + latest_file;
-#else
-    std::string path = dir + "/" + latest_file;
-#endif
+    // Prefer selecting latest list csv by modification time (and prefer "*_list*.csv").
+    std::string path = find_latest_list_csv_in_dir(dir);
     if (out_path) {
         *out_path = path;
+    }
+    if (path.empty()) {
+        return symbols;
     }
 
     std::ifstream file(path.c_str());
