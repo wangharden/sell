@@ -2,6 +2,7 @@
 
 #include "../core/util.h"
 #include "SecTradingApi.h"
+#include "itpdk/itpdk_dict.h"
 #include "ImprovedLogger.h"
 
 #include <algorithm>
@@ -11,7 +12,6 @@
 
 namespace {
 constexpr const char* kStrategyName = "qh2h_sell";
-constexpr int NOTIFY_PUSH_MATCH = 2;
 }
 
 Qh2hSellModule::Qh2hSellModule(std::string account_id,

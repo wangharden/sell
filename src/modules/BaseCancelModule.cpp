@@ -1,6 +1,7 @@
 #include "BaseCancelModule.h"
 
 #include "../core/util.h"
+#include "itpdk/itpdk_dict.h"
 #include "ImprovedLogger.h"
 
 #include <algorithm>
@@ -22,9 +23,6 @@
 
 namespace {
 constexpr const char* kStrategyName = "qh2h_base_cancel";
-
-constexpr int NOTIFY_PUSH_ORDER = 1;
-constexpr int NOTIFY_PUSH_MATCH = 2;
 
 constexpr int kBatchSize = 100;
 constexpr int kBatchSleepMs = 1000;
@@ -120,7 +118,9 @@ void BaseCancelModule::tick(AppContext& ctx) {
 void BaseCancelModule::on_order_event(AppContext& ctx, const OrderResult& result, int notify_type) {
     (void)ctx;
 
-    if (notify_type != NOTIFY_PUSH_ORDER && notify_type != NOTIFY_PUSH_MATCH) {
+    // 排撤触发只需要“委托推送”(nType=NOTIFY_PUSH_ORDER)。
+    // 外部单出现就撤第二单：不必等待成交推送。
+    if (notify_type != NOTIFY_PUSH_ORDER) {
         return;
     }
 

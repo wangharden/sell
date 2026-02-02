@@ -768,21 +768,35 @@ OrderResult SecTradingApi::wait_order(const std::string& order_id, int timeout_m
 
 // 静态回调函数
 void SecTradingApi::OnStructMsgCallback(const char* pTime, stStructMsg& stMsg, int nType) {
-    std::string token = std::to_string(stMsg.nStructToken); // 使用nStructToken
-    
-    // 查找对应的实例
+    // 注意：部分环境下 nStructToken 不可靠，不能只用它来路由回调。
+    // 这里按 token -> account_id -> (single instance) 兜底顺序查找实例。
+    std::string token = std::to_string(stMsg.nStructToken);
+    std::string account_id = trim_copy(std::string(stMsg.AccountId));
+
     SecTradingApi* instance = nullptr;
     {
         std::lock_guard<std::mutex> lock(instances_mutex_);
         auto it = instances_.find(token);
         if (it != instances_.end()) {
             instance = it->second;
+        } else if (!account_id.empty()) {
+            auto it_acc = instances_by_account_.find(account_id);
+            if (it_acc != instances_by_account_.end()) {
+                instance = it_acc->second;
+            }
+        }
+        if (!instance && instances_.size() == 1) {
+            instance = instances_.begin()->second;
         }
     }
-    
+
     if (instance) {
         instance->handle_struct_msg(pTime, stMsg, nType);
+        return;
     }
+
+    std::cerr << "[SEC] Struct callback dropped (no instance): token="
+              << token << " account=" << account_id << " nType=" << nType << std::endl;
 }
 
 void SecTradingApi::OnOrderAsyncCallback(const char* pTime, stStructOrderFuncMsg& stMsg, int nType) {
