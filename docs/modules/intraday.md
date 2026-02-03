@@ -59,7 +59,7 @@
 1. 50% random skip
 2. 检查 keep_position: `(avail_vol - hold_vol) / total_vol <= keep_position` 则跳过
 3. 跳过涨停 (bid1 == zt_price)
-4. price = floor((bid1 + ask1) / 2, 0.01)
+4. price = `ceil_round((bid1 + ask1)/2 - 1e-6, 2)`（0.01 精度，向上取整）
 5. 随机量控制: single_amt < bid1 * vol 时生效
 6. 下单后 sold_vol += vol
 

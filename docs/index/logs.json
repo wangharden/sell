@@ -1,13 +1,16 @@
 {
   "version": "1.0",
-  "root": "d:/work/sell",
+  "root": "d:/work/sell3",
   "logs": [
-    "log/trading_test*.log"
+    "result/log/*.log",
+    "result/log/**/*.log"
   ],
   "artifacts": [
-    "feedback/result/config.json",
-    "feedback/result/*.csv",
-    "feedback/result/docs/worklog/*.md",
-    "feedback/result/docs/incidents/*.md"
+    "result/config.json",
+    "result/*.csv",
+    "result/data/**/*.csv",
+    "result/docs/worklog/*.md",
+    "result/docs/incidents/*.md",
+    "result/docs/modules/*.md"
   ]
 }

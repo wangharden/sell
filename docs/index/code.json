@@ -1,13 +1,24 @@
 {
   "version": "1.0",
-  "root": "d:/work/sell",
+  "root": "d:/work/sell3",
   "entry_points": [
+    "result/main.cpp",
     "result/examples/usage_example.cpp",
+    "result/src/modules/BaseCancelModule.cpp",
+    "result/src/modules/Qh2hSellModule.cpp",
     "result/src/strategies/AuctionSellStrategy.cpp",
     "result/src/strategies/CloseSellStrategy.cpp",
     "result/src/strategies/IntradaySellStrategy.cpp"
   ],
   "categories": {
+    "modules": [
+      "result/src/modules/BaseCancelModule.h",
+      "result/src/modules/BaseCancelModule.cpp",
+      "result/src/modules/Qh2hSellModule.h",
+      "result/src/modules/Qh2hSellModule.cpp",
+      "result/src/modules/UsageExampleModule.h",
+      "result/src/modules/UsageExampleModule.cpp"
+    ],
     "strategies": [
       "result/src/strategies/AuctionSellStrategy.h",
       "result/src/strategies/AuctionSellStrategy.cpp",

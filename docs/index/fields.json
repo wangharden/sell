@@ -225,6 +225,47 @@
         }
       }
     },
+    "itpdk_notify": {
+      "notify_type": {
+        "type": "int",
+        "source": "itpdk_dict.h",
+        "notes": "SecTradingApi 回调 nType（常见误用：把 1/2 当成委托/成交）",
+        "values": {
+          "1": "NOTIFY_CONNECT (通讯连接)",
+          "2": "NOTIFY_DISCONNECT (通讯断开)",
+          "8": "NOTIFY_PUSH_ORDER (委托推送)",
+          "9": "NOTIFY_PUSH_WITHDRAW (撤单推送)",
+          "10": "NOTIFY_PUSH_MATCH (成交推送)"
+        }
+      }
+    },
+    "base_cancel": {
+      "buy_list_path_": {
+        "type": "string",
+        "source": "BaseCancelModule::load_buy_list_symbols",
+        "notes": "buy list 实际读取的 CSV 路径（按修改时间选最新，优先 `_list`）"
+      },
+      "buy_symbols_": {
+        "type": "vector<string>",
+        "scope": "module",
+        "notes": "buy list 解析出的 symbol 集合（用于底仓补齐与非名单清仓判定）"
+      },
+      "second_ready_": {
+        "type": "unordered_set<string>",
+        "scope": "module",
+        "notes": "外部单触发后待撤的第二单 order_id 集合"
+      },
+      "second_canceled_": {
+        "type": "unordered_set<string>",
+        "scope": "module",
+        "notes": "已撤的第二单 order_id 集合"
+      },
+      "sell_non_list_done_": {
+        "type": "bool",
+        "scope": "module",
+        "notes": "14:59:50-14:59:57 非名单清仓门控（只执行一次）"
+      }
+    },
     "derived": {
       "sellable": {
         "formula": "min(available - hold_vol, total - hold_vol)",
@@ -237,9 +278,9 @@
         "usage": "Intraday 时间窗口选择"
       },
       "mid_price": {
-        "formula": "floor((bid1 + ask1) / 2, 0.01)",
+        "formula": "ceil_round((bid1 + ask1)/2 - 1e-6, 0.01)",
         "unit": "元",
-        "usage": "Intraday/Close 挂单价"
+        "usage": "Intraday/Close 挂单价（向上取整；减 epsilon 避免边界浮点误差）"
       }
     }
   }

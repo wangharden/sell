@@ -1,13 +1,15 @@
 {
   "version": "1.0",
-  "root": "d:/work/sell",
-  "handbook": "feedback/result/docs/README.md",
-  "worklog_dir": "feedback/result/docs/worklog",
-  "incident_dir": "feedback/result/docs/incidents",
-  "runbook_dir": "feedback/result/docs/runbook",
-  "adr_dir": "feedback/result/docs/adr",
+  "root": "d:/work/sell3",
+  "handbook": "result/docs/README.md",
+  "worklog_dir": "result/docs/worklog",
+  "incident_dir": "result/docs/incidents",
+  "runbook_dir": "result/docs/runbook",
+  "adr_dir": "result/docs/adr",
   "strategy_docs": [
-    "result/docs/*.md"
+    "result/docs/*.md",
+    "result/docs/modules/*.md",
+    "result/docs/runbook/*.md"
   ],
   "sample_specs": [
     "sample/qh2h*.txt"
@@ -17,5 +19,8 @@
   ],
   "adapter_docs": [
     "result/src/adapters/*.md"
+  ],
+  "indices": [
+    "result/docs/index/*.json"
   ]
 }

@@ -3,19 +3,24 @@
   "description": "Pipeline 索引 - 函数级定位，指向模块级文档",
   "modules": {
     "auction": {
-      "doc": "feedback/result/docs/modules/auction.md",
+      "doc": "result/docs/modules/auction.md",
       "source": "result/src/strategies/AuctionSellStrategy.h",
       "summary": "竞价卖出策略 09:20-09:30"
     },
     "intraday": {
-      "doc": "feedback/result/docs/modules/intraday.md",
+      "doc": "result/docs/modules/intraday.md",
       "source": "result/src/strategies/IntradaySellStrategy.h",
       "summary": "盘中卖出策略 09:30-14:49"
     },
     "close": {
-      "doc": "feedback/result/docs/modules/close.md",
+      "doc": "result/docs/modules/close.md",
       "source": "result/src/strategies/CloseSellStrategy.h",
       "summary": "收盘卖出策略 14:53-15:00"
+    },
+    "base_cancel": {
+      "doc": "result/docs/modules/base_cancel.md",
+      "source": "result/src/modules/BaseCancelModule.h",
+      "summary": "底仓/排撤模块 09:10-15:00"
     }
   },
   "pipelines": [
@@ -130,6 +135,62 @@
       "window": "14:58:00-14:59:50",
       "depends_on": ["close_phase3_test_sell"],
       "outputs": ["order_ids_"]
+    },
+    {
+      "id": "base_cancel_buy_list_load",
+      "module": "base_cancel",
+      "function": "BaseCancelModule::load_buy_list_symbols",
+      "window": "init",
+      "depends_on": [],
+      "outputs": ["buy_symbols_", "buy_list_path_"]
+    },
+    {
+      "id": "base_cancel_pre_orders",
+      "module": "base_cancel",
+      "function": "BaseCancelModule::do_pre_orders",
+      "window": "09:10:20-09:17:00",
+      "depends_on": ["base_cancel_buy_list_load"],
+      "outputs": ["zt_cache_"]
+    },
+    {
+      "id": "base_cancel_second_orders",
+      "module": "base_cancel",
+      "function": "BaseCancelModule::do_second_orders",
+      "window": "09:24:20-09:24:50",
+      "depends_on": ["base_cancel_pre_orders"],
+      "outputs": ["second_order_ids_", "second_order_by_symbol_"]
+    },
+    {
+      "id": "base_cancel_monitor_external_order",
+      "module": "base_cancel",
+      "function": "BaseCancelModule::on_order_event",
+      "window": "09:30:00-14:55:00",
+      "depends_on": ["base_cancel_second_orders"],
+      "outputs": ["second_ready_"]
+    },
+    {
+      "id": "base_cancel_cancel_second_orders",
+      "module": "base_cancel",
+      "function": "BaseCancelModule::do_cancel",
+      "window": "09:29:00-14:55:00",
+      "depends_on": ["base_cancel_monitor_external_order"],
+      "outputs": ["second_canceled_"]
+    },
+    {
+      "id": "base_cancel_base_buy",
+      "module": "base_cancel",
+      "function": "BaseCancelModule::do_base_buy",
+      "window": "14:54:00-14:55:00",
+      "depends_on": ["base_cancel_buy_list_load"],
+      "outputs": ["order_id"]
+    },
+    {
+      "id": "base_cancel_sell_non_list_positions",
+      "module": "base_cancel",
+      "function": "BaseCancelModule::do_sell_non_list_positions",
+      "window": "14:59:50-14:59:57",
+      "depends_on": ["close_phase4_bulk_sell"],
+      "outputs": ["order_id"]
     }
   ],
   "core_pipelines": [

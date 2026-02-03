@@ -475,10 +475,6 @@ int main(int argc, char** argv) {
 
     if (enable_sell) {
         for (const auto& pos : positions) {
-            std::string code = extract_code_from_symbol(pos.symbol);
-            if (!pass_code_filter(code, code_min, code_max)) {
-                continue;
-            }
             if (pos.available > hold_vol) {
                 subscribe_set.insert(pos.symbol);
             }
@@ -560,7 +556,8 @@ int main(int argc, char** argv) {
 
     std::vector<std::unique_ptr<IModule>> modules;
     if (enable_sell) {
-        modules.emplace_back(new Qh2hSellModule(trading_account, hold_vol, code_min, code_max));
+        // Qh2hSellModule should work on all holdings; code range filtering is reserved for BaseCancelModule.
+        modules.emplace_back(new Qh2hSellModule(trading_account, hold_vol, "", ""));
         sell_module = static_cast<Qh2hSellModule*>(modules.back().get());
     }
     if (enable_base_cancel) {

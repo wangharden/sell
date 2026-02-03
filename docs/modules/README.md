@@ -9,6 +9,7 @@
 | [auction.md](auction.md) | 竞价卖出 | 09:20-09:30 | AuctionSellStrategy |
 | [intraday.md](intraday.md) | 盘中卖出 | 09:30-14:49 | IntradaySellStrategy |
 | [close.md](close.md) | 收盘卖出 | 14:53-15:00 | CloseSellStrategy |
+| [base_cancel.md](base_cancel.md) | 底仓/排撤 | 09:10-15:00 | BaseCancelModule |
 
 ## 文档结构
 

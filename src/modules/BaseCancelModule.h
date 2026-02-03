@@ -60,6 +60,7 @@ private:
     void do_pre_orders(AppContext& ctx, int now);
     void do_second_orders(AppContext& ctx, int now);
     void do_cancel(AppContext& ctx);
+    void do_sell_non_list_positions(AppContext& ctx, int now);
 
     std::string account_id_;
     int hold_vol_ = 300;
@@ -72,6 +73,7 @@ private:
     bool buy_list_done_ = false;
     bool panqian_done_ = false;
     bool second_done_ = false;
+    bool sell_non_list_done_ = false;
     int panqian_index_ = 0;
 
     std::vector<std::string> buy_symbols_;

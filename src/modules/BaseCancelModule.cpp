@@ -72,6 +72,7 @@ bool BaseCancelModule::init(AppContext& ctx) {
     buy_list_done_ = false;
     panqian_done_ = false;
     second_done_ = false;
+    sell_non_list_done_ = false;
     panqian_index_ = 0;
 
     {
@@ -115,6 +116,12 @@ void BaseCancelModule::tick(AppContext& ctx) {
     // 09:29:00-14:55:00 盘中撤单
     if (time_in_range(now, 92900, 145500)) {
         do_cancel(ctx);
+    }
+
+    // 14:59:50-14:59:57 卖出不在名单中的股票剩余持仓（用于把 CloseSellStrategy 留下的 300 股也清掉）
+    if (!sell_non_list_done_ && time_in_range(now, 145950, 145957)) {
+        sell_non_list_done_ = true;
+        do_sell_non_list_positions(ctx, now);
     }
 }
 
@@ -545,7 +552,7 @@ void BaseCancelModule::do_base_buy(AppContext& ctx, int now) {
         {
             std::lock_guard<std::mutex> lock(ctx.market_mutex);
             auto limits = ctx.market->get_limits(symbol);
-            double low_limit = round_price(limits.second);
+            double low_limit = round_price(limits.first);
             if (low_limit > 0.0) {
                 buy_price = low_limit;
             } else {
@@ -726,6 +733,82 @@ void BaseCancelModule::do_second_orders(AppContext& ctx, int now) {
     }
 
     logger_->info_f("[QUEUE] done, total %d orders", queue_count);
+}
+
+void BaseCancelModule::do_sell_non_list_positions(AppContext& ctx, int now) {
+    if (buy_symbols_.empty() || buy_list_path_.empty()) {
+        logger_->warn("[SELL] buy list missing/empty; skip non-list sell");
+        return;
+    }
+
+    std::unordered_set<std::string> buy_set(buy_symbols_.begin(), buy_symbols_.end());
+    auto positions = ctx.trading->query_positions();
+
+    int sell_count = 0;
+    for (const auto& pos : positions) {
+        if (pos.available <= 0) {
+            continue;
+        }
+
+        std::string symbol = pos.symbol;
+        std::string code = extract_code_from_symbol(symbol);
+        if (!pass_code_filter(code, code_min_, code_max_)) {
+            continue;
+        }
+
+        std::string alt = to_symbol(code);
+        const bool in_list =
+            buy_set.count(symbol) > 0 || (!alt.empty() && buy_set.count(alt) > 0);
+        if (in_list) {
+            continue;
+        }
+
+        std::string sell_symbol = alt.empty() ? symbol : alt;
+
+        int64_t vol = to_lot(pos.available, 100);
+        if (vol <= 0) {
+            continue;
+        }
+
+        double sell_price = 0.0;
+        {
+            std::lock_guard<std::mutex> lock(ctx.market_mutex);
+            // Align with CloseSellStrategy Phase4: sell at down-limit (dt price) to maximize fill probability.
+            auto limits = ctx.market->get_limits(sell_symbol);
+            double dt = round_price(limits.second);
+            if (dt > 0.0) {
+                sell_price = dt;
+            } else {
+                MarketSnapshot snap = ctx.market->get_snapshot(sell_symbol);
+                if (snap.valid && snap.bid_price1 > 0.0) {
+                    sell_price = round_price(snap.bid_price1);
+                }
+            }
+        }
+        if (!(sell_price > 0.0)) {
+            logger_->warn("[SELL] " + sell_symbol + " no price, skip");
+            continue;
+        }
+
+        OrderRequest req;
+        req.account_id = account_id_;
+        req.symbol = sell_symbol;
+        req.side = OrderSide::Sell;
+        req.price = sell_price;
+        req.volume = vol;
+        req.is_market = false;
+        req.remark = std::string(kStrategyName) + "_sell_non_list_" + sell_symbol + "_" + std::to_string(now);
+
+        std::string order_id = ctx.trading->place_order(req);
+        if (!order_id.empty()) {
+            sell_count++;
+            logger_->info_f("[SELL] %s vol=%lld price=%.2f order=%s",
+                            sell_symbol.c_str(), static_cast<long long>(vol), sell_price, order_id.c_str());
+        }
+    }
+
+    logger_->info_f("[SELL] non-list sell done, total %d orders (list=%s)",
+                    sell_count, buy_list_path_.c_str());
 }
 
 void BaseCancelModule::do_cancel(AppContext& ctx) {

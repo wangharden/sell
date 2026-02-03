@@ -1,26 +1,26 @@
 {
-  "version": "2.0",
-  "project": "sell",
-  "root": "d:/work/sell",
-  "source_root": "d:/work/sell/result",
-  "feedback_root": "d:/work/sell/feedback/result",
-  "sync_script": "d:/work/sell/sync_feedback.ps1",
+  "version": "2.1",
+  "project": "sell3",
+  "root": "d:/work/sell3",
+  "source_root": "d:/work/sell3/result",
   "indices": {
-    "code": "feedback/result/docs/index/code.json",
-    "docs": "feedback/result/docs/index/docs.json",
-    "logs": "feedback/result/docs/index/logs.json",
-    "pipelines": "feedback/result/docs/index/pipelines.json",
-    "fields": "feedback/result/docs/index/fields.json"
+    "code": "result/docs/index/code.json",
+    "docs": "result/docs/index/docs.json",
+    "logs": "result/docs/index/logs.json",
+    "pipelines": "result/docs/index/pipelines.json",
+    "fields": "result/docs/index/fields.json"
   },
   "modules": {
-    "auction": "feedback/result/docs/modules/auction.md",
-    "intraday": "feedback/result/docs/modules/intraday.md",
-    "close": "feedback/result/docs/modules/close.md"
+    "auction": "result/docs/modules/auction.md",
+    "intraday": "result/docs/modules/intraday.md",
+    "close": "result/docs/modules/close.md",
+    "base_cancel": "result/docs/modules/base_cancel.md"
   },
-  "incidents": "feedback/result/docs/incidents",
+  "incidents": "result/docs/incidents",
+  "worklog": "result/docs/worklog",
   "notes": [
-    "Code changes are made under d:/work/sell/result and synced to feedback.",
-    "Docs and debug records live under feedback/result/docs.",
+    "Code changes are made under d:/work/sell3/result.",
+    "Docs and debug records live under result/docs/.",
     "Module docs consolidate pipeline details; fields.json provides variable dictionary.",
     "Incidents track bug reports and fixes."
   ]
